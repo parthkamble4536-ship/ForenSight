@@ -1,0 +1,12 @@
+# Auto-detect text files and normalize line endings to LF on checkout/commit
+* text=auto eol=lf
+
+# Explicit binary files
+*.exe binary
+*.dll binary
+*.pdf binary
+*.docx binary
+*.db binary
+*.sqlite binary
+*.bin binary
+

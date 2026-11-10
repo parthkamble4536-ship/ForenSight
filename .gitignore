@@ -1,0 +1,50 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Environment & local secrets
+.env
+.env.*
+!.env.example
+
+# ForenSight cryptographic keys (DO NOT COMMIT PRIVATE KEYS)
+data/keys/*
+!data/keys/.gitkeep
+
+# ForenSight untrusted evidence storage (DO NOT COMMIT EVIDENCE)
+data/evidence/*
+!data/evidence/.gitkeep
+
+# ForenSight generated reports & temporary triage exports
+data/reports/*
+!data/reports/.gitkeep
+
+# Local SQLite databases
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite3
+*.db
+*.db-*
+*.sqlite
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ case.title }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 24px;">
+    <a href="/cases" style="font-size: 13px; color: var(--text-muted);">&larr; Back to Cases</a>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 8px;">
+        <div>
+            <h1 style="margin: 0; font-size: 26px; font-weight: 800;">{{ case.title }}</h1>
+            <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 14px;">{{ case.description or 'No case description' }}</p>
+        </div>
+        <div>
+            <span class="badge badge-success">{{ case.status }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Case Evidence Items ({{ evidence_items|length }})</h2>
+    </div>
+    {% if evidence_items %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Artifact</th>
+                <th>Format</th>
+                <th>SHA-256 Digest</th>
+                <th>Size</th>
+                <th>Added</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in evidence_items %}
+            <tr>
+                <td style="font-weight: 600;">
+                    <a href="/evidence/{{ item.evidence_id }}">{{ item.original_filename }}</a>
+                    {% if item.is_extension_mismatch %}
+                    <span class="badge badge-danger" style="margin-left: 6px;">Masquerade</span>
+                    {% endif %}
+                </td>
+                <td><span class="badge badge-info">{{ item.identified_type }}</span></td>
+                <td class="mono" style="font-size: 11px; color: var(--text-muted);">{{ item.sha256[:16] }}...{{ item.sha256[-8:] }}</td>
+                <td>{{ "{:,}".format(item.file_size_bytes) }} B</td>
+                <td style="color: var(--text-muted);">{{ item.stored_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>
+                    <a href="/evidence/{{ item.evidence_id }}" class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;">View Triage</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        No evidence has been attached to this case yet. Upload an artifact from the Dashboard or use the Ingestion API with <code>case_id={{ case.case_id }}</code>.
+    </div>
+    {% endif %}
+</div>
+
+{% if relationships %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Cross-Evidence Correlation Graph & Pivot Edges ({{ relationships|length }})</h2>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Correlation Category</th>
+                <th>Source & Target Evidence</th>
+                <th>Forensic Explanation & Shared Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rel in relationships %}
+            <tr>
+                <td><span class="badge badge-warning">{{ rel.relationship_type.value }}</span></td>
+                <td class="mono" style="font-size: 12px;">{{ rel.source_evidence_id[:8] }} &harr; {{ rel.target_evidence_id[:8] }}</td>
+                <td>
+                    <strong>{{ rel.reason }}</strong>
+                    {% if rel.shared_value %}
+                    <div class="mono" style="font-size: 11px; color: var(--accent); margin-top: 2px;">{{ rel.shared_value }}</div>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

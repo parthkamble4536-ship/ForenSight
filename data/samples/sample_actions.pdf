@@ -1,0 +1,22 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /OpenAction 2 0 R /Pages 4 0 R >>
+endobj
+2 0 obj
+<< /S /JavaScript /JS (app.alert('Benign demonstration notification');) >>
+endobj
+3 0 obj
+<< /S /Launch /F (calc.exe) >>
+endobj
+4 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 4 0 R /Annots [6 0 R] >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Link /A << /S /URI /URI (http://suspicious-telemetry.example.org/beacon) >> >>
+endobj
+trailer
+<< /Root 1 0 R >>
+%%EOF

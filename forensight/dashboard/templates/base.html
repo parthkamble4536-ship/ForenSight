@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ForenSight{% endblock %} — Digital Forensics Platform</title>
+    <link rel="stylesheet" href="/static/css/forensic.css">
+</head>
+<body>
+    <header class="navbar">
+        <div class="brand">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            FOREN<span>SIGHT</span>
+        </div>
+        <nav class="nav-links">
+            <a href="/" class="{% if active_tab == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="/cases" class="{% if active_tab == 'cases' %}active{% endif %}">Cases</a>
+            <span style="color: #334155;">|</span>
+            <span style="font-size: 11px; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                <span style="display:inline-block; width:8px; height:8px; background:#10b981; border-radius:50%;"></span>
+                VAULT SECURE
+            </span>
+        </nav>
+    </header>
+
+    <main class="main-container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer style="text-align: center; padding: 24px; color: #475569; font-size: 12px; border-top: 1px solid #1e293b;">
+        ForenSight Digital Forensics Platform &copy; 2026 &bull; Local-First Static Triage &bull; Bound to 127.0.0.1
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

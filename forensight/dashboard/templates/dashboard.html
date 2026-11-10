@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 800;">Investigation Overview</h1>
+        <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 14px;">File-centric static triage, structure inspection, and evidence intelligence</p>
+    </div>
+    <div>
+        <a href="/cases" class="btn btn-outline" style="margin-right: 8px;">View Cases</a>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="label">Investigation Cases</div>
+        <div class="value">{{ summary.total_cases }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Cataloged Evidence</div>
+        <div class="value">{{ summary.total_evidence }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Suspicious Artifacts</div>
+        <div class="value" style="color: var(--warning);">{{ summary.suspicious_evidence }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Critical Findings</div>
+        <div class="value" style="color: var(--danger);">{{ summary.critical_findings }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Evidence Ingestion Dropzone</h2>
+        <span style="font-size: 11px; color: var(--text-muted); font-weight: 700;">MAX UPLOAD: 25 MB &bull; NO DYNAMIC EXECUTION</span>
+    </div>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <div class="dropzone" onclick="document.getElementById('file-input').click()">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p><strong style="color: var(--text-primary);">Click or drag evidence artifact here to ingest</strong></p>
+            <p>Supports Windows PE (EXE/DLL), PDF, Office (DOCX/DOCM), EML, ZIP archives, Images, and Text/Logs</p>
+            <input type="file" id="file-input" name="file" style="display: none;" onchange="this.form.submit()">
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Recently Ingested Evidence Artifacts</h2>
+    </div>
+    {% if evidence_list %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Original Filename</th>
+                <th>Format</th>
+                <th>SHA-256 Digest</th>
+                <th>File Size</th>
+                <th>Ingested</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in evidence_list %}
+            <tr>
+                <td style="font-weight: 600;">
+                    <a href="/evidence/{{ item.evidence_id }}">{{ item.original_filename }}</a>
+                    {% if item.is_extension_mismatch %}
+                    <span class="badge badge-danger" style="margin-left: 6px;">Masquerade</span>
+                    {% endif %}
+                </td>
+                <td><span class="badge badge-info">{{ item.identified_type }}</span></td>
+                <td class="mono" style="font-size: 11px; color: var(--text-muted);">{{ item.sha256[:16] }}...{{ item.sha256[-8:] }}</td>
+                <td>{{ "{:,}".format(item.file_size_bytes) }} B</td>
+                <td style="color: var(--text-muted);">{{ item.stored_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>
+                    <a href="/evidence/{{ item.evidence_id }}" class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;">View Triage</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        No evidence artifacts uploaded yet. Use the dropzone above to ingest your first forensic specimen.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

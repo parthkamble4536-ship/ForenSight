@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}Triage — {{ evidence.original_filename }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 24px;">
+    <a href="/" style="font-size: 13px; color: var(--text-muted);">&larr; Back to Dashboard</a>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 8px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <h1 style="margin: 0; font-size: 26px; font-weight: 800;">{{ evidence.original_filename }}</h1>
+                <span class="badge badge-info">{{ evidence.identified_type }}</span>
+                {% if evidence.is_extension_mismatch %}
+                <span class="badge badge-danger">EXTENSION MASQUERADE ALERT</span>
+                {% endif %}
+            </div>
+            <p class="mono" style="margin: 4px 0 0; color: var(--text-muted); font-size: 12px;">Evidence UUID: {{ evidence.evidence_id }}</p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <button id="btn-verify-integrity" data-evidence-id="{{ evidence.evidence_id }}" class="btn btn-outline" style="font-size: 12px;">
+                Verify Vault Integrity
+            </button>
+            <a href="/evidence/{{ evidence.evidence_id }}/export/html" target="_blank" class="btn btn-outline" style="font-size: 12px;">Export HTML</a>
+            <a href="/evidence/{{ evidence.evidence_id }}/export/json" target="_blank" class="btn btn-outline" style="font-size: 12px;">Export JSON</a>
+            <a href="/evidence/{{ evidence.evidence_id }}/export/pdf" target="_blank" class="btn" style="font-size: 12px;">Export PDF</a>
+        </div>
+    </div>
+</div>
+
+<div id="integrity-result-box" style="display: none; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; border-radius: 6px;"></div>
+
+<!-- Risk Assessment Banner -->
+<div class="card" style="border-left: 4px solid {% if analysis and analysis.risk_score >= 70 %}var(--danger){% elif analysis and analysis.risk_score >= 45 %}var(--warning){% else %}var(--success){% endif %};">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Explainable Risk Assessment</div>
+            <h2 style="margin: 4px 0; font-size: 20px; font-weight: 800;">
+                Verdict: {% if analysis %}{{ analysis.verdict }}{% else %}UNANALYZED{% endif %}
+            </h2>
+            <p style="margin: 0; font-size: 13px; color: var(--text-muted);">
+                {% if analysis %}{{ analysis.summary }}{% else %}No analysis has been recorded for this specimen.{% endif %}
+            </p>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 36px; font-weight: 800; color: {% if analysis and analysis.risk_score >= 70 %}var(--danger){% elif analysis and analysis.risk_score >= 45 %}var(--warning){% else %}var(--success){% endif %};">
+                {% if analysis %}{{ analysis.risk_score }}{% else %}0{% endif %}<span style="font-size: 16px; color: var(--text-muted);">/100</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabs Navigation -->
+<div class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-overview">Overview & Hashes</button>
+    <button class="tab-btn" data-tab="tab-findings">Findings ({% if analysis %}{{ analysis.findings|length }}{% else %}0{% endif %})</button>
+    <button class="tab-btn" data-tab="tab-structure">Structural Details</button>
+    <button class="tab-btn" data-tab="tab-iocs">Extracted IOCs ({% if analysis %}{{ analysis.iocs|length }}{% else %}0{% endif %})</button>
+    <button class="tab-btn" data-tab="tab-timeline">Timeline Events</button>
+    <button class="tab-btn" data-tab="tab-custody">Chain of Custody Ledger</button>
+</div>
+
+<!-- Tab 1: Overview & Hashes -->
+<div id="tab-overview" class="tab-pane active">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">SHA-256 Digest</div>
+            <div class="value mono" style="font-size: 13px; word-break: break-all; margin-top: 8px;">{{ evidence.sha256 }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">SHA-1 Digest</div>
+            <div class="value mono" style="font-size: 13px; word-break: break-all; margin-top: 8px;">{{ evidence.sha1 }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">MD5 Digest</div>
+            <div class="value mono" style="font-size: 13px; word-break: break-all; margin-top: 8px;">{{ evidence.md5 }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">File Size & Entropy</div>
+            <div class="value" style="font-size: 18px; margin-top: 8px;">{{ "{:,}".format(evidence.file_size_bytes) }} bytes <span style="font-size: 13px; color: var(--text-muted);">(Entropy: {{ "%.2f"|format(evidence.entropy) }}/8.0)</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 16px;">Storage Vault Integrity & Digital Manifest</h3>
+        <table class="data-table">
+            <tbody>
+                <tr>
+                    <td style="width: 220px; font-weight: 700; color: var(--text-muted);">Storage Vault Path:</td>
+                    <td class="mono" style="font-size: 12px; color: var(--text-muted);">{{ evidence.storage_path }}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 700; color: var(--text-muted);">MIME Type (Magic Bytes):</td>
+                    <td>{{ evidence.mime_type }}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 700; color: var(--text-muted);">Filesystem State:</td>
+                    <td><span class="badge badge-success">READ-ONLY LOCKED</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 700; color: var(--text-muted);">Ed25519 Signing Key:</td>
+                    <td class="mono" style="font-size: 12px;">{{ evidence.public_key_fingerprint or 'Unsigned (Local Mode)' }}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 700; color: var(--text-muted);">Manifest Signature:</td>
+                    <td class="mono" style="font-size: 11px; word-break: break-all; color: var(--success);">{{ evidence.manifest_signature or 'N/A' }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Tab 2: Findings -->
+<div id="tab-findings" class="tab-pane">
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 16px;">Explainable Forensic Findings</h3>
+        {% if analysis and analysis.findings %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 130px;">Rule ID</th>
+                    <th style="width: 90px;">Severity</th>
+                    <th>Finding Title & Description</th>
+                    <th>Forensic Explanation & Context</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in analysis.findings %}
+                <tr>
+                    <td class="mono" style="font-weight: 700;">{{ f.rule_id }}</td>
+                    <td>
+                        <span class="badge {% if f.severity in ('CRITICAL', 'HIGH') %}badge-danger{% elif f.severity == 'MEDIUM' %}badge-warning{% else %}badge-info{% endif %}">
+                            {{ f.severity }}
+                        </span>
+                    </td>
+                    <td>
+                        <div style="font-weight: 700;">{{ f.title }}</div>
+                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">{{ f.description }}</div>
+                        {% if f.mitre_technique %}
+                        <div style="font-size: 11px; color: var(--accent); margin-top: 4px;">MITRE ATT&CK: {{ f.mitre_technique }}</div>
+                        {% endif %}
+                    </td>
+                    <td style="font-size: 12px; color: var(--text-muted);">{{ f.explanation or 'No additional context' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            No suspicious static indicators or structural anomalies were detected.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 3: Structural Details -->
+<div id="tab-structure" class="tab-pane">
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 16px;">Parsed Structural Artifact Details</h3>
+        {% if raw_details %}
+        <pre class="mono" style="background: #020617; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 12px; color: #38bdf8; max-height: 500px;">{{ raw_details }}</pre>
+        {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            No specialized structural details recorded for this file format.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 4: Extracted IOCs -->
+<div id="tab-iocs" class="tab-pane">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Extracted Indicators of Compromise (IOCs)</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">ALL INDICATORS ARE DEFANGED BY DEFAULT</span>
+        </div>
+        {% if analysis and analysis.iocs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 120px;">Type</th>
+                    <th>Defanged Value</th>
+                    <th>Context</th>
+                    <th style="width: 100px;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ioc in analysis.iocs %}
+                <tr>
+                    <td><span class="badge badge-info">{{ ioc.ioc_type }}</span></td>
+                    <td class="mono" style="font-size: 13px;">{{ ioc.defanged_value }}</td>
+                    <td style="font-size: 12px; color: var(--text-muted);">{{ ioc.context or 'Extracted string' }}</td>
+                    <td>
+                        <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px;" onclick="copyToClipboard('{{ ioc.defanged_value }}', this)">Copy</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            No network, domain, email, or registry IOCs were extracted from this artifact.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 5: Timeline Events -->
+<div id="tab-timeline" class="tab-pane">
+    <div class="card">
+        <h3 class="card-title" style="margin-bottom: 16px;">Chronological Timeline Events</h3>
+        {% if timeline_events %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 180px;">Timestamp (UTC)</th>
+                    <th style="width: 140px;">Type</th>
+                    <th>Source Field</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ev in timeline_events %}
+                <tr>
+                    <td class="mono" style="font-size: 12px;">{{ ev.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
+                    <td><span class="badge badge-warning">{{ ev.timestamp_type.value }}</span></td>
+                    <td style="font-size: 12px;">{{ ev.source }}</td>
+                    <td>{{ ev.description }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            No timestamp metadata was recoverable from this artifact.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 6: Chain of Custody Ledger -->
+<div id="tab-custody" class="tab-pane">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Cryptographically Linked Audit Ledger</h3>
+            <span class="badge badge-success">UNBROKEN CHAIN</span>
+        </div>
+        {% if custody_events %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 160px;">Event Timestamp</th>
+                    <th style="width: 130px;">Action Type</th>
+                    <th>Details</th>
+                    <th>Previous Hash & Event Hash</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ev in custody_events %}
+                <tr>
+                    <td class="mono" style="font-size: 11px; color: var(--text-muted);">{{ ev.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
+                    <td><span class="badge badge-info">{{ ev.event_type }}</span></td>
+                    <td style="font-size: 12px;">{{ ev.details }}</td>
+                    <td class="mono" style="font-size: 10px; color: var(--text-dim);">
+                        Prev: {{ ev.previous_event_hash[:16] }}...<br>
+                        This: <span style="color: var(--accent);">{{ ev.event_hash[:16] }}...</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            No custody events cataloged for this evidence item.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+From: Executive Office <ceo@corporate-hq.com>
+To: employee@corporate-hq.com
+Reply-To: urgent-response@external-attacker-domain.xyz
+Subject: URGENT: Review Wire Transfer Documentation
+Date: Tue, 10 Nov 2026 14:00:00 +0000
+Received-SPF: Fail (corporate-hq.com: domain does not designate 198.51.100.24
+ as permitted sender)
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============4321822548963071440=="
+
+--===============4321822548963071440==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Please review the attached invoice immediately.
+Further instructions: http://c2-finance-update.example.net/confirm
+
+--===============4321822548963071440==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="wire_transfer_receipt.pdf.exe"
+MIME-Version: 1.0
+
+TVqQAHN5bnRoZXRpY19wYXlsb2Fk
+
+--===============4321822548963071440==--
