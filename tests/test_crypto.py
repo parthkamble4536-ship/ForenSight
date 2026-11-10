@@ -63,3 +63,4 @@ class TestCryptoSigning:
         # Tampering with filename invalidates signature
         signed_manifest.original_filename = "innocent_document.pdf"
         assert verify_manifest(signed_manifest, pub_key) is False
+

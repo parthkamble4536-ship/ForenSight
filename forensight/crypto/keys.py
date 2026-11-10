@@ -100,3 +100,4 @@ class KeyManager:
 
 # Global key manager singleton
 key_manager = KeyManager()
+

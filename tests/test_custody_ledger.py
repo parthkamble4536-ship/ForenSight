@@ -54,3 +54,4 @@ class TestCustodyLedger:
         is_valid, error = ledger.verify_ledger_integrity()
         assert is_valid is False
         assert "record content has been altered" in (error or "")
+

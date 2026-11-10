@@ -231,3 +231,4 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
         "suspicious_evidence": suspicious_count,
         "critical_findings": critical_findings_count,
     }
+

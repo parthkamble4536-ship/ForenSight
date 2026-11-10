@@ -115,3 +115,4 @@ class TestReportGenerator:
         pdf_bytes = result_path.read_bytes()
         assert len(pdf_bytes) > 1000
         assert pdf_bytes.startswith(b"%PDF-")
+

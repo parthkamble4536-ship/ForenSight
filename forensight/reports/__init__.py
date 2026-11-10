@@ -8,3 +8,4 @@ __all__ = [
     "ReportGenerator",
     "report_generator",
 ]
+

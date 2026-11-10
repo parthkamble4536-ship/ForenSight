@@ -193,3 +193,4 @@ class CustodyEventModel(Base):
     details: Mapped[str] = mapped_column(Text, nullable=False)
     previous_event_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     event_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+

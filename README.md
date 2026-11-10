@@ -292,3 +292,4 @@ tests/test_text_analyzer.py ................ PASSED [100%]
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+

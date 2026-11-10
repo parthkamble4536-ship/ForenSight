@@ -101,3 +101,4 @@ def verify_manifest(
     }
     canonical_bytes = _canonicalize_dict(canonical_payload)
     return verify_payload_signature(canonical_bytes, manifest.signature, public_key)
+

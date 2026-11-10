@@ -185,3 +185,4 @@ table.data-table tr:hover { background: var(--card-hover); }
 .tab-pane.active { display: block; }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+

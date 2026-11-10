@@ -4,7 +4,7 @@ Dashboard web presentation routes for ForenSight (FastAPI + Jinja2).
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -52,13 +52,6 @@ templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 
 
-def _clean_form_str(val: Any, default: Optional[str] = None) -> Optional[str]:
-    """Sanitize Form-injected values to primitives if called directly as a Python callable."""
-    if val is None or hasattr(val, "default"):
-        return default
-    return str(val)
-
-
 @dashboard_router.get("/", response_class=HTMLResponse)
 def index_page(request: Request, db: Session = Depends(get_db)):
     """Main dashboard page."""
@@ -82,14 +75,13 @@ def handle_dashboard_upload(
     db: Session = Depends(get_db),
 ):
     """Handle drag-and-drop file upload from dashboard and redirect to triage view."""
-    clean_case_id = _clean_form_str(case_id, None)
     filename = file.filename or "uploaded_artifact.bin"
 
     # Ingest file into storage vault
     ingest_result = ingestion_pipeline.ingest_stream(
         stream=file.file,
         original_filename=filename,
-        case_id=clean_case_id,
+        case_id=case_id,
         allow_duplicates=False,
     )
 
@@ -172,10 +164,7 @@ def create_case_form(
     db: Session = Depends(get_db),
 ):
     """Handle case creation form submission."""
-    clean_title = _clean_form_str(title, "Untitled Case") or "Untitled Case"
-    clean_desc = _clean_form_str(description, None)
-    clean_inv = _clean_form_str(investigator, "Lead Investigator") or "Lead Investigator"
-    create_case(db, title=clean_title, description=clean_desc, investigator=clean_inv)
+    create_case(db, title=title, description=description, investigator=investigator)
     return RedirectResponse(url="/cases", status_code=303)
 
 

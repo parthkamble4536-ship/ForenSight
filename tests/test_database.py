@@ -120,3 +120,4 @@ class TestDatabaseCRUD:
         assert summary["total_cases"] == 1
         assert summary["total_evidence"] == 1
         assert summary["suspicious_evidence"] == 1
+

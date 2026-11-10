@@ -65,13 +65,6 @@ def dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return get_dashboard_summary(db)
 
 
-def _sanitize_form_str(val: Any, default: Optional[str] = None) -> Optional[str]:
-    """Sanitize Form-injected values to primitives if called directly as a Python callable."""
-    if val is None or hasattr(val, "default"):
-        return default
-    return str(val)
-
-
 # --- Case Endpoints ---
 
 @api_router.get("/cases")
@@ -88,10 +81,7 @@ def new_case(
     db: Session = Depends(get_db),
 ):
     """Create a new investigation case."""
-    clean_title = _sanitize_form_str(title, "Untitled Case") or "Untitled Case"
-    clean_desc = _sanitize_form_str(description, None)
-    clean_inv = _sanitize_form_str(investigator, "Lead Investigator") or "Lead Investigator"
-    case = create_case(db, title=clean_title, description=clean_desc, investigator=clean_inv)
+    case = create_case(db, title=title, description=description, investigator=investigator)
     return case
 
 
@@ -116,7 +106,6 @@ def upload_evidence(
     """
     Secure evidence upload, streaming ingestion, duplicate detection, and static analysis.
     """
-    clean_case_id = _sanitize_form_str(case_id, None)
     filename = file.filename or "uploaded_artifact.bin"
 
     try:
@@ -124,7 +113,7 @@ def upload_evidence(
         ingest_result = ingestion_pipeline.ingest_stream(
             stream=file.file,
             original_filename=filename,
-            case_id=clean_case_id,
+            case_id=case_id,
             allow_duplicates=False,
         )
     except DuplicateEvidenceError as dup:
