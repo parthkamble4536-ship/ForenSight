@@ -1,162 +1,327 @@
-# ForenSight — Digital Forensics & Static Evidence Intelligence Platform
+<div align="center">
 
-[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-80%20passed-success.svg)](tests/)
-[![Security](https://img.shields.io/badge/forensics-static%20analysis%20only-red.svg)](#security-architecture)
-[![Local First](https://img.shields.io/badge/binding-127.0.0.1-brightgreen.svg)](#installation--setup)
+<img src="https://img.shields.io/badge/ForenSight-DFIR%20v2-00f5d4?style=for-the-badge&logo=shield&logoColor=white"/>
 
-**ForenSight** is a high-assurance, local-first digital forensics and static malware triage platform engineered for incident responders, malware analysts, forensic examiners, and security engineers.
+# 🔬 ForenSight
+### Advanced Digital Forensics & Evidence Intelligence Platform
 
-ForenSight delivers deep structural inspection of untrusted files, identifies extension masquerading, extracts defanged Indicators of Compromise (IOCs), calculates explainable risk scores, maintains a tamper-evident SHA-256 hash-chained custody ledger, and generates cryptographically signed (Ed25519) forensic examination reports in standalone HTML, JSON, and PDF formats.
+[![CI](https://github.com/parthkamble4536-ship/ForenSight/actions/workflows/ci.yml/badge.svg)](https://github.com/parthkamble4536-ship/ForenSight/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white)](Dockerfile)
+[![Tests](https://img.shields.io/badge/Tests-100%20Passed-success?style=flat&logo=pytest&logoColor=white)](tests/)
+[![Security](https://img.shields.io/badge/Bandit-0%20High%20Severity-brightgreen?style=flat&logo=security&logoColor=white)](#security)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
+[![Binding](https://img.shields.io/badge/Binding-127.0.0.1%20Local--First-critical?style=flat)](#security)
 
----
+<br/>
 
-## Key Capabilities
+> **A high-assurance, air-gapped, local-first forensic workbench** for incident responders, DFIR analysts, students, and security engineers — no cloud, no execution, no leakage.
 
-- **Strict Zero-Execution Guarantee**: Analyzes untrusted artifacts statically without ever invoking system loaders, script runtimes, macro engines, or shell interpreters.
-- **Concurrent Multi-Hashing**: Computes NIST-standard SHA-256, SHA-1, and MD5 digests concurrently via 64 KB memory-bounded chunked streaming before files touch disk.
-- **Pure-Python Identification**: Eliminates binary DLL / `libmagic.so` dependency conflicts across Windows and Kali Linux by pairing pure-Python byte identification (`puremagic`) with an internal forensic signature catalog.
-- **Deception & Masquerade Detection**: Catches PE binaries disguised as PDFs, macro-enabled templates (`.docm`) disguised as clean `.docx`, double-extension payloads (`invoice.pdf.exe`), and suspicious file headers.
-- **Deep Structural Forensic Analyzers**:
-  - **Windows PE (EXE / DLL)**: DOS/NT/Optional headers, compile timestamp anomalies (zeroed / future timestomping), section entropy (UPX / packing detection), W^X memory section violations, high-risk API import catalogs (process hollowing, keylogging, anti-debug), Authenticode signatures, and overlay inspection.
-  - **Adobe PDF**: Structural trailer/catalog parsing, active object hunting (`/JavaScript`, `/JS`, `/Launch`, `/OpenAction`, `/AA`, `/EmbeddedFiles`), and `/URI` hyperlink extraction.
-  - **Office OpenXML (DOCX / DOCM)**: OpenXML package dissection, VBA macro storage detection (`vbaProject.bin`), embedded OLE compound objects, and Remote Template Injection hunting targeting external `.dotm` templates (MITRE ATT&CK T1221).
-  - **RFC 822 Email (EML)**: Header anomaly analysis, spoof detection (mismatched `From` vs `Reply-To`), SPF/DKIM status inspection, body hyperlink extraction, and attachment hashing with dangerous executable extension alerts.
-  - **Archives (ZIP)**: Zip Slip path traversal defense, zip-bomb / compression ratio explosion checks, nested archives, and double-extension executable alerts.
-  - **Images (PNG / JPEG / TIFF)**: Pillow-based EXIF metadata extraction, camera manufacturer/model, original timestamps, and software tampering signatures (Photoshop, GIMP).
-  - **Text & Incident Logs**: Bounded-line heuristic scanner hunting for ransomware volume shadow deletion (`vssadmin delete shadows`), encoded PowerShell commands (`powershell -enc`), dynamic execution (`IEX`), and Living-off-the-Land Binaries (LOLBins, e.g. `certutil -urlcache`).
-- **Defanged IOC Intelligence**: Regex extraction engine capturing IPv4 (filtering loopback), IPv6, URLs, domains, registry keys, and file paths, automatically neutralized (e.g. `hxxp://`, `[.]`).
-- **Explainable 0–100 Risk Engine**: Normalized transparent risk scoring capped by category to prevent heuristic inflation, providing clear rule contributions, confidence metrics, and standard forensic disclaimers.
-- **Tamper-Evident Chain of Custody**: SHA-256 hash-chained immutable audit ledger recording every acquisition, integrity check, analysis run, and report export.
-- **Cryptographic Verification (Ed25519)**: Ingestion manifests and examination reports are digitally signed using Ed25519 asymmetric cryptography.
-- **Live Multi-Factor Integrity Audit**: Instant cryptographic verification validating file size, SHA-256, SHA-1, and MD5 against recorded evidence records.
-- **Multi-Format Export**: Generates self-contained, offline-ready HTML reports (inlined CSS), structured JSON reports, and print-ready ReportLab PDF reports.
-- **Local-First Web UI & REST API**: Forensic dark-themed dashboard built with FastAPI, Jinja2, vanilla CSS/JS (zero external CDNs or trackers), bound strictly to `127.0.0.1`.
+<br/>
+
+**[🚀 Quick Start](#-quick-start) · [🖥️ Screenshots](#-screenshots) · [🏗️ Architecture](#-architecture) · [🔬 Analyzers](#-forensic-analyzers) · [🔐 Security](#-security-model) · [🐳 Docker](#-docker) · [🧪 Tests](#-testing)**
+
+</div>
 
 ---
 
-## Architecture
+## ✨ What is ForenSight?
+
+**ForenSight** is a production-grade, **static-only** digital forensics platform built for SOC analysts, malware researchers, forensic examiners, and cybersecurity students.
+
+It allows you to:
+- **Upload** any suspect file — PE executables, PDFs, Office documents, emails, archives, images, logs.
+- **Identify** real file type via binary magic bytes, catching masquerading attacks.
+- **Analyze** deeply using 7 format-specific forensic analyzers with MITRE ATT&CK mapping.
+- **Score** threat level 0–100 with fully explainable, deterministic risk rules.
+- **Extract** defanged IOCs (IPs, URLs, hashes, registry keys, paths).
+- **Track** every action via a tamper-evident SHA-256 hash-chained Chain of Custody ledger.
+- **Verify** integrity with Ed25519 digital signatures at any time.
+- **Export** signed forensic reports in HTML, JSON, PDF, CSV (findings), and STIX 2.1 (threat intel).
+
+> **🔒 Zero-Execution Guarantee**: ForenSight never executes, loads, or evaluates uploaded evidence. No `subprocess`, no `eval`, no shell — verified by automated AST scanning in every CI run.
+
+---
+
+## 🖥️ Screenshots
+
+### 1. Evidence Triage Workbench — Explainable Risk Verdict
+![Triage Workbench](Screenshots/1.png)
+
+### 2. Cryptographic Vault & Ed25519 Signed Manifest
+![Crypto Vault](Screenshots/2.png)
+
+### 3. Detections & MITRE ATT&CK Mapping
+![MITRE Detections](Screenshots/3.png)
+
+### 4. Forensic Timeline — UTC Normalized Events
+![Forensic Timeline](Screenshots/4.png)
+
+### 5. Chain of Custody — SHA-256 Hash-Chained Ledger
+![Chain of Custody](Screenshots/5.png)
+
+### 6. Standalone Forensic Report (HTML Export)
+![Forensic Report](Screenshots/6.png)
+
+### 7. EML Evidence Verification — Integrity Pass
+![Verification](Screenshots/8.png)
+
+---
+
+## 🏗️ Architecture
+
+### System Overview
 
 ```mermaid
 flowchart TD
-    A["Untrusted File Upload<br/>(Max 25 MB Stream)"] --> B["Streaming Multi-Hasher<br/>(SHA-256, SHA-1, MD5)"]
-    B --> C["Vault Storage Manager<br/>(UUID Isolation: data/evidence/)"]
-    C --> D["File Identification Engine<br/>(Magic Bytes + Masquerade Detector)"]
-    D --> E["Ed25519 Digital Signing<br/>(Acquisition Manifest)"]
-    E --> F["Chain of Custody Ledger<br/>(SHA-256 Linked Chain)"]
-    
-    D --> G{"Analyzer Dispatcher"}
-    G -->|"PE / DLL"| H1["PE Analyzer (pefile)"]
-    G -->|"PDF"| H2["PDF Analyzer (pypdf)"]
-    G -->|"DOCX / DOCM"| H3["DOCX Analyzer (OpenXML)"]
-    G -->|"EML"| H4["Email Analyzer (RFC 822)"]
-    G -->|"ZIP"| H5["Archive Safety & Analyzer"]
-    G -->|"Image"| H6["Image EXIF Analyzer"]
-    G -->|"Text / Log"| H7["Text & Log Analyzer"]
-    
-    H1 & H2 & H3 & H4 & H5 & H6 & H7 --> I["String & IOC Extractor<br/>(Defanged URLs, IPs, Hashes)"]
-    I --> J["Explainable Risk Engine<br/>(0–100 Scored Verdict)"]
-    
-    J --> K["SQLite WAL Database<br/>(Cases, Evidence, Findings)"]
-    K --> L["Web Dashboard<br/>(FastAPI + Jinja2)"]
-    K --> M["Multi-Format Reports<br/>(HTML, JSON, PDF)"]
+    subgraph INPUT["📁 INPUT LAYER"]
+        A["🌐 Browser Upload\nDrag & Drop / API"]
+    end
+
+    subgraph INGESTION["⚙️ INGESTION PIPELINE"]
+        B["🔢 Streaming Multi-Hasher\nSHA-256 · SHA-1 · MD5\n64 KB chunks"]
+        C["🏦 UUID Evidence Vault\ndata/evidence/<uuid>.bin\nRead-Only Isolation"]
+        D["🔍 File Identification\nMagic Bytes + Masquerade\nDetection + Entropy"]
+        E["✍️ Ed25519 Signing\nAcquisition Manifest"]
+    end
+
+    subgraph ANALYZERS["🔬 FORENSIC ANALYZERS v2.1"]
+        H1["🪟 PE Analyzer\nHeaders · Entropy · APIs\nMITRE T1055, T1027"]
+        H2["📄 PDF Analyzer\n/JS · /Launch · /URI\nForm & Embedded Files"]
+        H3["📝 DOCX Analyzer\nVBA · Remote Template\nMITRE T1221"]
+        H4["📧 Email Analyzer\nSPF · DKIM · DMARC\nSpoofing · Attachments"]
+        H5["🗜️ Archive Analyzer\nZip Bomb · Zip Slip\nNested Inspection"]
+        H6["🖼️ Image Analyzer\nEXIF · GPS · Camera\nTimestamp Anomalies"]
+        H7["📃 Text Analyzer\nPowerShell · LOLBins\nRansomware Patterns"]
+    end
+
+    subgraph INTELLIGENCE["🧠 INTELLIGENCE ENGINE"]
+        I["🎯 IOC Extractor\nIPs · URLs · Hashes\nDefanged Automatically"]
+        J["📊 Risk Scorer\n0–100 Explainable\nCategory-Capped"]
+        K["🔗 Chain of Custody\nSHA-256 Hash Chain\nTamper Detection"]
+    end
+
+    subgraph PERSISTENCE["💾 PERSISTENCE"]
+        L[("🗄️ SQLite WAL\nCases · Evidence\nFindings · Timeline")]
+    end
+
+    subgraph OUTPUT["📤 OUTPUT LAYER"]
+        M["🖥️ SOC Dashboard\nFastAPI + Jinja2\n127.0.0.1 Only"]
+        N["📋 HTML Report\nSelf-Contained\nXSS-Safe"]
+        O["📑 PDF Report\nReportLab\nSigned"]
+        P["🔖 STIX 2.1\nThreat Intel Bundle"]
+        Q["📊 CSV Export\nFindings Matrix"]
+    end
+
+    A --> B --> C --> D --> E --> K
+    D --> H1 & H2 & H3 & H4 & H5 & H6 & H7
+    H1 & H2 & H3 & H4 & H5 & H6 & H7 --> I --> J --> L
+    K --> L
+    L --> M
+    L --> N & O & P & Q
 ```
 
 ---
 
-## Security Architecture
+### Security Boundaries
 
-1. **Localhost Binding**: FastAPI server binds strictly to `127.0.0.1` by default, eliminating unintended local network exposure.
-2. **Defensive Storage Isolation**: Uploaded evidence is assigned a cryptographically random UUIDv4 and stored as `data/evidence/<uuid>.bin` outside any publicly served web routes.
-3. **Path Traversal Protection**: Filenames undergo strict sanitization (null byte stripping, path separator elimination, reserved character neutralization). Archive analysis defends against Zip Slip traversal attacks.
-4. **Resource Bounds**:
-   - Default upload ceiling of 25 MB (`26,214,400` bytes), enforced during streaming with automatic deletion of partial files on violation.
-   - String extraction capped at `5,000` strings (`4`–`256` chars, `10 MB` sample ceiling) and `50,000` max text lines in `Settings`.
-   - Zip bomb defense enforcing maximum uncompressed size (`100 MB`), compression ratio (`100.0x`), recursion depth (`2`), and entry count ceiling (`500` entries).
-5. **Read-Only Evidence Vault**: Stored files are set to read-only (`0o444`) on POSIX/Linux systems, complemented by live multi-hash verification.
-6. **Key Protection**: Ed25519 private keys (`data/keys/`) are automatically excluded by `.gitignore` and generated with restricted filesystem permissions.
+```mermaid
+flowchart LR
+    subgraph INTERNET["🌍 External World"]
+        EX1["❌ No CDN Calls"]
+        EX2["❌ No Threat Intel Upload"]
+        EX3["❌ No Cloud Storage"]
+    end
 
----
+    subgraph HOST["🖥️ Host Machine (127.0.0.1)"]
+        subgraph CONTAINER["🐳 ForenSight Container / Process"]
+            WEB["🌐 FastAPI\n127.0.0.1:8000"]
+            subgraph VAULT["🔐 Evidence Vault (data/)"]
+                EV["📦 UUID.bin Files\nRead-Only 0o444"]
+                DB[("🗄️ SQLite WAL")]
+                KEYS["🔑 Ed25519 Keys\n.gitignored"]
+            end
+            ANALYZERS2["🔬 Static Analyzers\nNEVER executes payloads"]
+        end
+        BROWSER["🌐 Analyst Browser"]
+    end
 
-## Directory Structure
-
-```
-D:\Projects\ForenSight\
-├── .env.example              # Configurable application defaults
-├── .gitattributes            # Cross-platform LF line endings
-├── .gitignore                # Excludes evidence, keys, reports, SQLite DBs
-├── requirements.txt          # Production dependencies
-├── requirements-dev.txt      # Development & testing dependencies
-├── scripts/
-│   └── generate_samples.py   # Safe synthetic demonstration specimen generator
-├── data/
-│   ├── evidence/             # Isolated UUID storage (git-ignored)
-│   ├── keys/                 # Ed25519 keypair storage (git-ignored)
-│   ├── reports/              # Generated PDF/HTML exports (git-ignored)
-│   └── samples/              # Benign synthetic demonstration artifacts
-├── forensight/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI application factory & lifespan
-│   ├── core/
-│   │   ├── config.py         # Pydantic Settings configuration
-│   │   ├── exceptions.py     # Forensics exception hierarchy
-│   │   ├── security.py       # Path sanitization, Zip Slip check, defanging
-│   │   └── types.py          # Unified data models & schemas
-│   ├── storage/
-│   │   ├── hasher.py         # Streaming SHA-256, SHA-1, MD5 hasher
-│   │   └── manager.py        # Evidence vault & live integrity auditor
-│   ├── ingestion/
-│   │   ├── signatures.py     # Embedded forensic byte signature catalog
-│   │   ├── identifier.py     # Pure-Python magic & masquerade engine
-│   │   ├── archive_safety.py # Safe ZIP inspector (anti-zip-bomb/traversal)
-│   │   └── pipeline.py       # Ingestion orchestrator & duplicate detector
-│   ├── analyzers/
-│   │   ├── base.py           # Abstract BaseAnalyzer interface
-│   │   ├── pe_analyzer.py    # PE/DLL header, timestamp, packing, APIs
-│   │   ├── pdf_analyzer.py   # PDF trailer, /JS, /Launch, /URI
-│   │   ├── docx_analyzer.py  # DOCX/DOCM OpenXML, VBA macros, T1221 template
-│   │   ├── email_analyzer.py # RFC 822 EML, spoof, SPF/DKIM, attachments
-│   │   ├── archive_analyzer.py # ZIP structure, double extensions
-│   │   ├── image_analyzer.py # EXIF metadata, camera, timestamps
-│   │   └── text_analyzer.py  # Bounded logs, ransomware commands, LOLBins
-│   ├── extraction/
-│   │   ├── encoding.py       # UTF-8 / UTF-16 / ASCII encoding detector
-│   │   └── strings.py        # Bounded ASCII & UTF-16LE string extractor
-│   ├── intelligence/
-│   │   ├── ioc_extractor.py  # Regex IOC engine with defanging
-│   │   └── scoring.py        # Explainable 0–100 risk scoring engine
-│   ├── crypto/
-│   │   ├── keys.py           # Ed25519 keypair lifecycle manager
-│   │   └── signing.py        # Manifest & report digital signature engine
-│   ├── evidence/
-│   │   ├── custody.py        # Tamper-evident SHA-256 hash-chained ledger
-│   │   ├── correlation.py    # Case-level cross-evidence IOC correlation
-│   │   └── timeline.py       # Unified forensic chronological timeline
-│   ├── database/
-│   │   ├── models.py         # SQLAlchemy ORM models (Cases, Evidence, Runs)
-│   │   ├── session.py        # SQLite engine with WAL mode & foreign keys
-│   │   └── crud.py           # Data access layer
-│   ├── reports/
-│   │   └── generator.py      # Standalone HTML, JSON, and ReportLab PDF reports
-│   ├── api/
-│   │   └── routes.py         # RESTful JSON endpoints (/api/v1)
-│   └── dashboard/
-│       ├── routes.py         # Jinja2 presentation endpoints
-│       ├── static/           # Forensic dark theme CSS & vanilla JS
-│       └── templates/        # Modular HTML templates
-└── tests/                    # 80 automated unit & integration tests
+    INTERNET -. "BLOCKED by design" .-> HOST
+    BROWSER <--> WEB
+    WEB --> ANALYZERS2
+    ANALYZERS2 --> VAULT
+    WEB --> VAULT
 ```
 
 ---
 
-## Installation & Setup
+### Database Entity Relationship
 
-### Windows 11 (Development Environment)
+```mermaid
+erDiagram
+    CASES {
+        string case_id PK
+        string title
+        string status
+        string investigator
+        string investigator_notes
+        string tags_json
+        datetime closed_at
+    }
+    EVIDENCE_ITEMS {
+        string evidence_id PK
+        string case_id FK
+        string original_filename
+        string sha256
+        string sha1
+        string md5
+        int file_size_bytes
+        float entropy
+        string manifest_signature
+        string last_verification_status
+    }
+    ANALYSIS_RUNS {
+        string run_id PK
+        string evidence_id FK
+        int risk_score
+        string verdict
+        datetime analyzed_at
+    }
+    FINDINGS {
+        string finding_id PK
+        string run_id FK
+        string rule_id
+        string severity
+        string analyzer_name
+        string mitre_technique
+        string review_status
+        bool is_false_positive
+    }
+    IOCS {
+        string ioc_id PK
+        string run_id FK
+        string ioc_type
+        string defanged_value
+        int offset
+    }
+    CUSTODY_EVENTS {
+        string event_id PK
+        string evidence_id
+        string event_type
+        string previous_event_hash
+        string event_hash
+        int sequence_index
+    }
+    TIMELINE_EVENTS {
+        string event_id PK
+        string evidence_id FK
+        string timestamp_type
+        string confidence
+        string source
+    }
+    CASE_ACTIVITIES {
+        string activity_id PK
+        string case_id FK
+        string action
+        string actor
+    }
+
+    CASES ||--o{ EVIDENCE_ITEMS : "contains"
+    CASES ||--o{ CASE_ACTIVITIES : "logs"
+    EVIDENCE_ITEMS ||--o{ ANALYSIS_RUNS : "analyzed by"
+    ANALYSIS_RUNS ||--o{ FINDINGS : "produces"
+    ANALYSIS_RUNS ||--o{ IOCS : "extracts"
+    ANALYSIS_RUNS ||--o{ TIMELINE_EVENTS : "generates"
+    EVIDENCE_ITEMS ||--o{ CUSTODY_EVENTS : "tracked by"
+```
+
+---
+
+### CI/CD Pipeline
+
+```mermaid
+flowchart LR
+    DEV["👨‍💻 Developer\nPush / PR"]
+    -->|"git push"| GH["GitHub\nmaster / main"]
+
+    GH --> TEST["🧪 Test Matrix\nPy 3.11 · 3.12 · 3.13\n100 Tests"]
+    GH --> SAST["🔐 Bandit SAST\n0 High Severity"]
+    GH --> DOCKER["🐳 Docker Build\n+ Health Check"]
+
+    TEST -->|"✅ PASS"| MERGE["✅ PR Ready\nto Merge"]
+    SAST -->|"✅ PASS"| MERGE
+    DOCKER -->|"✅ PASS"| MERGE
+
+    TEST -->|"❌ FAIL"| BLOCK["🚫 Blocked"]
+    SAST -->|"❌ FAIL"| BLOCK
+    DOCKER -->|"❌ FAIL"| BLOCK
+```
+
+---
+
+## 🔬 Forensic Analyzers
+
+| Analyzer | File Types | Key Detections | MITRE ATT&CK |
+|:---|:---|:---|:---|
+| **PE Analyzer v2.1** | `.exe`, `.dll`, `.sys` | PE32/PE32+ headers, compile timestamp, section entropy, RWX sections, IAT suspicious APIs, exports, PDB paths, overlay | T1027 (Obfuscation), T1055 (Process Injection), T1056 (Keylogging) |
+| **PDF Analyzer v2.1** | `.pdf` | `/JavaScript`, `/Launch`, `/OpenAction`, `/EmbeddedFiles`, `/AcroForm`, `/URI` IOCs | T1566 (Phishing), T1204 (User Execution) |
+| **Office Analyzer v2.1** | `.docx`, `.docm` | VBA macro storage, OLE objects, External Template Injection (`.dotm`), bounded XML parsing | T1221 (Template Injection), T1137 (Office Application Startup) |
+| **Email Analyzer v2.1** | `.eml` | Header spoofing, SPF/DKIM/DMARC, `Return-Path` anomalies, dangerous attachments | T1566.001 (Spearphishing Attachment), T1598 (Phishing for Info) |
+| **Archive Analyzer v2.1** | `.zip` | Zip Slip traversal, zip bombs (ratio/size/entries), nested inspection, double extensions | T1027 (Obfuscation), T1074 (Data Staged) |
+| **Image Analyzer v2.1** | `.jpg`, `.png`, `.gif` | EXIF metadata, GPS coordinates, camera fingerprinting, editing software (Photoshop/GIMP) | T1646 (Exfiltration over C2) |
+| **Text/Log Analyzer v2.1** | `.txt`, `.log`, `.csv`, `.xml` | PowerShell encoding, `IEX`/`iex`, `vssadmin`, `certutil`, `mimikatz`, LOLBins | T1059 (Command Interpreter), T1490 (Shadow Copy Deletion) |
+
+---
+
+## 🧪 Testing
+
+The project maintains **100 automated test cases** across 25 test suites:
+
+```bash
+python -m pytest tests/ -v
+```
+
+| Test Module | Coverage Area |
+|:---|:---|
+| `test_phase1_fixes.py` | SQLite persistence, custody chain, HTML escaping, timeline |
+| `test_phase2_analyzers.py` | All 7 analyzers, detection provenance, bounded parsing |
+| `test_phase3_intelligence.py` | Verification Center, Findings, Timeline, Case Workflow |
+| `test_phase4_5_validation.py` | Adversarial inputs, Zip Slip, bombs, AST security guard |
+| `test_pe_analyzer.py` | PE header parsing, entropy, IAT analysis |
+| `test_pdf_analyzer.py` | PDF action detection, encryption |
+| `test_email_analyzer.py` | Spoofing detection, header anomalies |
+| `test_crypto.py` | Ed25519 key generation, signing, verification |
+| `test_custody_ledger.py` | Chain integrity, tamper detection |
+| `test_storage_security.py` | Zip Slip defense, path traversal |
+| *(+ 15 more modules)* | Hashing, strings, IOC extraction, scoring, database, API |
+
+---
+
+## 🔐 Security Model
+
+| Guardrail | Implementation |
+|:---|:---|
+| **Zero Execution** | AST-verified: `0` calls to `subprocess`, `os.system`, `eval`, or `exec` |
+| **Localhost Only** | Binds to `127.0.0.1:8000` by default — not accessible from network |
+| **XSS Prevention** | All report output HTML-escaped with `html.escape(quote=True)` |
+| **Zip Bomb Defense** | 100 MB expansion cap, 100.0x ratio limit, 500 entry ceiling, depth 2 |
+| **Path Traversal** | Zip Slip guard on archive members; `sanitize_filename()` on all uploads |
+| **XXE Prevention** | XML member reads capped at 2 MB with DTD/ENTITY tag screening |
+| **Evidence Isolation** | UUID4-named `.bin` files outside web-served routes, read-only permissions |
+| **Chain of Custody** | SHA-256 hash chain with `sequence_index`; refuses tampered DB append |
+| **Cryptographic Signing** | Ed25519 manifest signed at acquisition; verifiable at any time |
+| **External Intel Disabled** | `FORENSIGHT_ENABLE_EXTERNAL_INTEL=false` by default |
+
+---
+
+## 🚀 Quick Start
+
+### Option A — Windows (Python 3.13)
 
 ```powershell
-# 1. Clone repository
-git clone https://github.com/YourUsername/ForenSight.git
+# 1. Clone the repository
+git clone https://github.com/parthkamble4536-ship/ForenSight.git
 cd ForenSight
 
 # 2. Create and activate virtual environment
@@ -167,160 +332,185 @@ python -m venv venv
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
-# 4. Generate synthetic demonstration evidence samples
+# 4. Generate synthetic test specimens
 python scripts/generate_samples.py
 
-# 5. Run automated test suite
+# 5. Run the full test suite (100 tests should pass)
 python -m pytest tests/ -v
 
-# 6. Launch ForenSight application
-uvicorn forensight.main:app --host 127.0.0.1 --port 8000 --reload
+# 6. Launch ForenSight
+python -m uvicorn forensight.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Native Kali Linux (Execution & Testing Environment)
+Open **http://127.0.0.1:8000** in your browser.
+
+---
+
+### Option B — Kali Linux / Ubuntu
 
 ```bash
-# 1. Clone or pull repository
-git clone https://github.com/YourUsername/ForenSight.git
+# 1. Clone
+git clone https://github.com/parthkamble4536-ship/ForenSight.git
 cd ForenSight
 
-# 2. Create virtual environment
+# 2. Quick automated setup (installs libmagic, creates venv, runs tests)
+bash setup_kali.sh
+
+# Or manual:
+sudo apt-get install -y libmagic1
 python3 -m venv venv
 source venv/bin/activate
-
-# 3. Install dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# 4. Generate synthetic specimens (if not already present)
-python3 scripts/generate_samples.py
-
-# 5. Execute full test suite
-python3 -m pytest tests/ -v
-
-# 6. Launch application
+pip install -r requirements.txt -r requirements-dev.txt
+python scripts/generate_samples.py
+python -m pytest tests/ -v
 uvicorn forensight.main:app --host 127.0.0.1 --port 8000
 ```
 
 ---
 
-### Docker & Docker Compose (Containerized Orchestration)
-
-ForenSight can be built and run in an isolated container with resource ceilings and loopback binding:
+### Option C — Docker (Recommended for Production)
 
 ```bash
-# 1. Build and start the containerized service
+# 1. Build and launch (all platforms)
 docker-compose up -d --build
 
-# 2. View container health & logs
+# 2. Check status and logs
+docker-compose ps
 docker-compose logs -f
 
-# 3. Stop the service
+# 3. Stop
 docker-compose down
 ```
 
-The Docker deployment:
-- Uses a multi-stage Debian-slim container running Python 3.13.
-- Runs under a dedicated unprivileged user (`forensight`, UID 10001).
-- Strictly binds to `127.0.0.1:8000` on the host (no network-wide exposure).
-- Mounts a named volume (`forensight_vault_data`) to persist SQLite database, cryptographic keys, and the evidence vault.
-- Drops all Linux kernel capabilities (`cap_drop: ALL`) and prevents privilege escalation (`no-new-privileges: true`).
+> Evidence vault, database, and Ed25519 keys are persisted in a named Docker volume (`forensight_vault_data`) across container restarts.
 
 ---
 
-Navigate to `http://127.0.0.1:8000` in your web browser.
+## 🌐 Web Interface
+
+| Page | URL | Purpose |
+|:---|:---|:---|
+| **Triage Console** | http://127.0.0.1:8000/ | Upload evidence, view queue, live risk scores |
+| **Case Dossiers** | http://127.0.0.1:8000/cases | Manage cases, view correlation graph |
+| **Findings Center** | http://127.0.0.1:8000/findings | Triage findings, mark false positives |
+| **Verification Center** | http://127.0.0.1:8000/verification | Multi-factor cryptographic audit |
+| **Timeline Explorer** | http://127.0.0.1:8000/timeline | UTC chronological forensic timeline |
+| **API Docs** | http://127.0.0.1:8000/docs | Interactive OpenAPI/Swagger interface |
 
 ---
 
-## Synthetic Demonstration Specimens
+## 📁 Project Structure
 
-A full battery of benign test files is generated by `scripts/generate_samples.py` into `data/samples/`:
-
-| Specimen Filename | Format | Forensic Scenario Demonstrated |
-| :--- | :--- | :--- |
-| `sample_clean.exe` | PE32 | Clean, minimal valid 32-bit PE binary with valid section headers. |
-| `sample_masquerade.pdf` | PE32 disguised as PDF | Deceptive extension masquerade (`IDENT-MASQ-001`). |
-| `sample_actions.pdf` | PDF 1.7 | PDF containing active `/JavaScript`, `/Launch` actions, and `/URI` IOCs. |
-| `sample_template_injection.docx` | OpenXML DOCX | Remote Template Injection referencing external `.dotm` (MITRE ATT&CK T1221). |
-| `sample_phishing.eml` | RFC 822 EML | Header spoofing (`From` vs `Reply-To`), SPF fail, and `wire_transfer_receipt.pdf.exe` attachment. |
-| `sample_double_extension.zip` | ZIP Archive | Archive containing disguised executable `statement.pdf.exe`. |
-| `sample_ransomware_log.txt` | Text / Log | Command log with `vssadmin delete shadows`, encoded PowerShell, and LOLBins. |
-
----
-
-## REST API Reference
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/v1/health` | Service health status and version probe. |
-| `GET` | `/api/v1/dashboard/summary` | Global forensic metrics (total cases, evidence, severity counts). |
-| `GET` | `/api/v1/cases` | List all investigation cases. |
-| `POST` | `/api/v1/cases` | Create a new investigation case (`title`, `description`, `investigator`). |
-| `GET` | `/api/v1/cases/{case_id}` | Case details with associated evidence items. |
-| `PATCH` | `/api/v1/cases/{case_id}` | Update case workflow status (`OPEN`, `IN_PROGRESS`, `UNDER_REVIEW`, `CLOSED`), notes, tags, closure. |
-| `POST` | `/api/v1/evidence/upload` | Upload untrusted artifact, compute multi-hashes, sign manifest, and triage. |
-| `POST` | `/api/v1/evidence/{id}/verify` | Audit file digests, Ed25519 manifest signature, and persistent custody continuity. |
-| `POST` | `/api/v1/verification/verify-all` | Run comprehensive vault verification across all cataloged artifacts. |
-| `GET` | `/api/v1/findings` | Query findings filtered by severity, confidence, review status, rule, or analyzer. |
-| `POST` | `/api/v1/findings/{id}/review` | Record analyst disposition (`OPEN`, `CONFIRMED`, `NEEDS_FOLLOWUP`, `FALSE_POSITIVE`) and notes. |
-| `GET` | `/api/v1/timeline` | Retrieve unified multi-source UTC timeline (metadata, ingestion, analysis, custody, case activity). |
-| `POST` | `/api/v1/reports/verify-manifest` | Verify an exported `EvidenceManifest` Ed25519 signature against active vault public key. |
-| `GET` | `/evidence/{id}/export/html` | Download self-contained, escaped, offline-ready HTML forensic report. |
-| `GET` | `/evidence/{id}/export/json` | Download full 16-section structured forensic triage JSON report. |
-| `GET` | `/evidence/{id}/export/pdf` | Download print-ready ReportLab PDF examination report with Ed25519 signature block. |
-| `GET` | `/evidence/{id}/export/csv` | Export forensic findings and rule/analyzer provenance as RFC 4180 CSV. |
-| `GET` | `/evidence/{id}/export/stix` | Export extracted IOCs as a deterministic STIX 2.1 Threat Intelligence JSON bundle. |
-
----
-
-## End-to-End Analyst Demonstration Workflow
-
-1. Create a case dossier in `/cases` (`status = OPEN`).
-2. Generate synthetic specimens (`python scripts/generate_samples.py`) and drag-and-drop `sample_template_injection.docx`, `sample_phishing.eml`, or `sample_ransomware_log.txt` into `/` or `/cases/{id}`.
-3. Inspect pre-analysis digests (`SHA-256`, `SHA-1`, `MD5`), file identification, and masquerade alerts (`sample_masquerade.pdf`).
-4. Review static findings, rule/analyzer versions, byte offsets, MITRE mappings, and record analyst dispositions in `/findings` or `/evidence/{id}`.
-5. Inspect defanged IOCs (`hxxp://`, `[.]`) and cross-evidence correlations in `/cases/{id}`.
-6. Inspect the multi-source UTC timeline (`original_timestamp` preserved alongside vault UTC events) in `/timeline`.
-7. Audit hashes, Ed25519 manifest signature, and persistent custody chain in `/verification` (`INTEGRITY VERIFIED`).
-8. Export HTML, JSON, PDF, Findings CSV, or STIX 2.1 IOC Bundle reports from `/evidence/{id}`.
-
----
-
-## Automated Verification
-
-ForenSight includes an automated test suite across 25 test modules (covering unit tests, analyzers, Phase 1 P0 fixes, Phase 3 intelligence centers, Phase 4 reporting, and Phase 5 adversarial/security regressions):
-
-```bash
-python scripts/verify_setup.py
-python -m pytest tests/ -q
+```
+ForenSight/
+├── forensight/
+│   ├── core/           # Config, exceptions, Pydantic schemas, security utils
+│   ├── ingestion/      # Streaming hasher, file ID, archive safety, pipeline
+│   ├── analyzers/      # 7 deep static forensic analyzers (v2.1.0)
+│   ├── extraction/     # ASCII & UTF-16LE string extractor, encoding detector
+│   ├── intelligence/   # IOC extractor + defanger, 0–100 risk scoring engine
+│   ├── evidence/       # Custody ledger, verification, timeline, correlation
+│   ├── crypto/         # Ed25519 key management and signing
+│   ├── database/       # SQLAlchemy 2.0 ORM models, session, CRUD layer
+│   ├── reports/        # HTML, JSON, PDF, CSV, STIX 2.1 export generators
+│   ├── api/            # FastAPI REST endpoints (/api/v1)
+│   ├── dashboard/      # Jinja2 templates, CSS, JavaScript, routes
+│   └── main.py         # FastAPI lifespan application factory
+├── tests/              # 100 automated unit, integration & adversarial tests
+├── scripts/            # Sample generator, environment verification audit
+├── data/               # Evidence vault, reports, keys, SQLite DB (gitignored)
+├── .github/workflows/  # GitHub Actions CI pipeline (Test + SAST + Docker)
+├── Dockerfile          # Multi-stage hardened Python 3.13 container
+├── docker-compose.yml  # Orchestrated deployment with security hardening
+├── requirements.txt    # Production dependencies
+└── requirements-dev.txt # Dev/test dependencies
 ```
 
 ---
 
-## Supported Formats & Known Limitations
+## 🎓 For Students — Getting Started Guide
 
-| Format / Category | Analyzer | Static Inspection Capabilities | Known Limitations |
-| :--- | :--- | :--- | :--- |
-| **Windows PE (`EXE`, `DLL`, `SYS`)** | `PEAnalyzer` (`2.1.0`) | DOS/NT headers, PE32 vs PE32+, section entropy/permissions (W^X, zero raw size), bounded imports/exports/resources, CodeView debug PDB path, Authenticode table presence, overlay size. | Authenticode certificate presence does not perform OS trust-chain validation; heavily corrupted headers fall back to `PE-CORRUPT-001`. |
-| **Adobe PDF** | `PDFAnalyzer` (`2.1.0`) | `/JavaScript`, `/JS`, `/OpenAction`, `/AA`, `/Launch`, `/EmbeddedFiles`, `/SubmitForm`, `/AcroForm`/`/XFA`, `/RichMedia`, `/ObjStm`, deduplicated `/URI` IOCs, metadata timestamps. | Raw scan bounded to 25 MB and 200 pages; encrypted PDF streams cannot inspect internal objects without decryption keys. |
-| **OpenXML (`DOCX`, `DOCM`)** | `DocxAnalyzer` (`2.1.0`) | OpenXML `.rels` external URLs, remote template injection (`T1221`), VBA project presence (`vbaProject.bin`), embedded OLE parts, `docProps/core.xml` authorship & timestamps. | Macro presence indicates script capability only, not execution proof; XML parts capped at 2 MB per member; legacy binary `.doc` OLE2 falls back to string triage. |
-| **RFC 822 Email (`EML`)** | `EmailAnalyzer` (`2.1.0`) | `From` / `Reply-To` / `Return-Path` inconsistencies, `Received` hops, `Authentication-Results` (SPF/DKIM/DMARC claims), MIME parts, attachment SHA-256 & extension risks, body URL/domain IOCs. | Authentication headers represent self-reported message claims (no DNS/DKIM key queries); binary Outlook `.msg` (OLE2) is not natively parsed and falls back to string triage. |
-| **ZIP Archives** | `ArchiveAnalyzer` (`2.1.0`) | Zip-Slip traversal defense, zip-bomb bounds (`500` entries, `100 MB`, `100.0x`, depth `2`, `5s` budget), double extensions, executables, encrypted entries, bounded nested ZIP inspection. | Encrypted entries, RAR/7z/TAR containers cannot have internal members unpacked cleanly without external native decompressors. |
-| **Images (`JPEG`, `PNG`, `GIF`)** | `ImageAnalyzer` (`2.1.0`) | EXIF tags, camera make/model, timestamps, editing software signatures, Pillow decompression-bomb guards. | Stripped metadata leaves only structural/entropy observations. |
-| **Text / Logs / Unknown Binaries** | `TextAnalyzer` (`2.1.0`) | Bounded ASCII & UTF-16LE string extraction (`5,000` strings, `10 MB` sample), encoding confidence, command/LOLBin patterns with byte offsets, defanged IOC extraction. | Heuristic regex/keyword patterns do not replace full disassembly or dynamic sandboxing. |
+**New to digital forensics?** Here is how to learn from ForenSight:
+
+1. **Start the server** and upload files from `data/samples/` — these are safe synthetic test specimens.
+2. **Read the Findings tab** — every finding explains *why* it was flagged, the MITRE technique, and the confidence level.
+3. **Study the Chain of Custody** — see how every action is permanently recorded with cryptographic linking.
+4. **Try the Verification Center** — click "Run Full Verification" to see how integrity audits work.
+5. **Export a Report** — download the PDF or HTML report and study the full forensic dossier structure.
+6. **Mark False Positives** — go to Findings Center and practice analyst disposition (a core DFIR skill).
+7. **Read the Code** — start with `forensight/analyzers/pe_analyzer.py` to understand static PE analysis.
+
+**Key Concepts You'll Learn:**
+- SHA-256 / Ed25519 cryptographic verification
+- Chain of Custody in digital forensics
+- MITRE ATT&CK framework mapping
+- IOC defanging and safe handling
+- Static vs dynamic malware analysis
+- Zip bomb and path traversal defenses
 
 ---
 
-## Boundaries & Disclaimer
+## 🧰 Supported File Types
 
-- **TriageHound Boundary**: ForenSight is an independent file-centric static forensics platform. It is strictly separate from live-system incident response frameworks (e.g. TriageHound).
-- **Academic & Forensic Disclaimer**: ForenSight provides heuristic static triage indicators. Risk scores reflect structural anomalies and potential threats; they do not constitute absolute confirmation of malware without dynamic behavioral confirmation.
-- **Evidence Handling**: Never execute untrusted files outside safe, isolated forensic sandbox environments.
+`.exe` · `.dll` · `.sys` · `.pdf` · `.docx` · `.docm` · `.eml` · `.zip` · `.jpg` · `.jpeg` · `.png` · `.gif` · `.txt` · `.log` · `.csv` · `.json` · `.xml` · `.bin`
 
 ---
 
-## License
+## 📦 Dependencies
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+| Package | Purpose |
+|:---|:---|
+| `fastapi` | ASGI web framework & REST API |
+| `uvicorn` | ASGI server |
+| `sqlalchemy` | ORM & SQLite WAL persistence |
+| `pydantic` | Data validation & schemas |
+| `cryptography` | Ed25519 asymmetric signing |
+| `pefile` | Windows PE binary parsing |
+| `pypdf` | PDF structure parsing |
+| `python-docx` | OpenXML Office document parsing |
+| `Pillow` | Image EXIF metadata extraction |
+| `puremagic` | Pure-Python file type identification |
+| `reportlab` | PDF forensic report generation |
+| `jinja2` | HTML template rendering |
 
+---
+
+## ⚙️ Configuration
+
+Copy `.env.example` to `.env` and customize:
+
+```env
+FORENSIGHT_HOST=127.0.0.1          # Never change to 0.0.0.0 in production
+FORENSIGHT_PORT=8000
+FORENSIGHT_DEBUG=false
+FORENSIGHT_MAX_UPLOAD_SIZE_BYTES=26214400   # 25 MB
+FORENSIGHT_MAX_STRING_EXTRACT=5000
+FORENSIGHT_ENABLE_EXTERNAL_INTEL=false      # Keep false — air-gapped by design
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome! Please:
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/my-enhancement`.
+3. Run the full test suite: `python -m pytest tests/ -v` — all 100 tests must pass.
+4. Run Bandit SAST: `bandit -r forensight/ -ll -q --severity-level high` — zero high findings.
+5. Submit a pull request with a clear description of changes.
+
+---
+
+<div align="center">
+
+**Built with ❤️ for the Digital Forensics & Incident Response Community**
+
+*ForenSight — Static Triage Only · Local First · Air-Gapped · Cryptographically Verified*
+
+</div>

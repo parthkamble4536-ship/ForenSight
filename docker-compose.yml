@@ -53,3 +53,4 @@ volumes:
   forensight_data:
     name: forensight_vault_data
     driver: local
+
