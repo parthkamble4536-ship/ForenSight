@@ -6,6 +6,7 @@ and forensic analysis reports.
 """
 
 import json
+from datetime import timezone
 from typing import Any, Dict
 
 from cryptography.exceptions import InvalidSignature
@@ -58,6 +59,8 @@ def sign_manifest(
     Sign an EvidenceManifest by computing the signature over its canonical fields.
     Attaches the signature and signing key fingerprint to the manifest.
     """
+    acq = manifest.acquired_at if manifest.acquired_at.tzinfo else manifest.acquired_at.replace(tzinfo=timezone.utc)
+    acq_utc = acq.astimezone(timezone.utc)
     canonical_payload = {
         "manifest_id": manifest.manifest_id,
         "evidence_id": manifest.evidence_id,
@@ -67,7 +70,7 @@ def sign_manifest(
         "md5": manifest.hashes.md5,
         "size_bytes": manifest.hashes.size_bytes,
         "file_type": manifest.file_type,
-        "acquired_at": manifest.acquired_at.isoformat(),
+        "acquired_at": acq_utc.isoformat(),
     }
     canonical_bytes = _canonicalize_dict(canonical_payload)
     sig_hex = sign_payload(canonical_bytes, private_key)
@@ -88,6 +91,8 @@ def verify_manifest(
     if not manifest.signature:
         return False
 
+    acq = manifest.acquired_at if manifest.acquired_at.tzinfo else manifest.acquired_at.replace(tzinfo=timezone.utc)
+    acq_utc = acq.astimezone(timezone.utc)
     canonical_payload = {
         "manifest_id": manifest.manifest_id,
         "evidence_id": manifest.evidence_id,
@@ -97,7 +102,7 @@ def verify_manifest(
         "md5": manifest.hashes.md5,
         "size_bytes": manifest.hashes.size_bytes,
         "file_type": manifest.file_type,
-        "acquired_at": manifest.acquired_at.isoformat(),
+        "acquired_at": acq_utc.isoformat(),
     }
     canonical_bytes = _canonicalize_dict(canonical_payload)
     return verify_payload_signature(canonical_bytes, manifest.signature, public_key)

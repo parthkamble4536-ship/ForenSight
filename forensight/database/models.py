@@ -23,7 +23,7 @@ class Base(DeclarativeBase):
 
 
 class CaseModel(Base):
-    """Investigation case container grouping related digital evidence items."""
+    """Investigation case container grouping related digital evidence items and workflow state."""
 
     __tablename__ = "cases"
 
@@ -35,11 +35,23 @@ class CaseModel(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
-    status: Mapped[str] = mapped_column(String(50), default="ACTIVE")
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="OPEN")
+    investigator_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    case_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    closed_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    closure_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     evidence_items: Mapped[List["EvidenceModel"]] = relationship(
         "EvidenceModel",
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    activities: Mapped[List["CaseActivityModel"]] = relationship(
+        "CaseActivityModel",
         back_populates="case",
         cascade="all, delete-orphan",
     )
@@ -81,8 +93,15 @@ class EvidenceModel(Base):
     is_read_only: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Cryptographic Manifest signature
+    manifest_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     manifest_signature: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     public_key_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # Verification Center state & analyst tags
+    last_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_verification_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    last_verification_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     case: Mapped[Optional["CaseModel"]] = relationship("CaseModel", back_populates="evidence_items")
@@ -166,6 +185,14 @@ class FindingModel(Base):
     mitre_technique: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     detected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Analyst Investigation Review & Disposition
+    review_status: Mapped[str] = mapped_column(String(30), default="OPEN", nullable=False)
+    is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    analyst_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_history_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     analysis_run: Mapped["AnalysisRunModel"] = relationship("AnalysisRunModel", back_populates="findings")
 
 
@@ -238,4 +265,28 @@ class TimelineEventModel(Base):
         "AnalysisRunModel",
         back_populates="timeline_events",
     )
+
+
+class CaseActivityModel(Base):
+    """Persistent investigation activity & workflow history log for a case."""
+
+    __tablename__ = "case_activities"
+
+    activity_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("cases.case_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor: Mapped[str] = mapped_column(String(100), default="system", nullable=False)
+    action: Mapped[str] = mapped_column(String(60), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+    case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="activities")
 

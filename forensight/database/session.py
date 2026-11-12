@@ -47,7 +47,9 @@ def init_db() -> None:
     """Create all database tables and apply safe additive schema migrations if needed."""
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
+    # Custody ledger ordering
     _ensure_column(inspector, "custody_events", "sequence_index", "INTEGER NOT NULL DEFAULT 0")
+    # Detection provenance & IOC offsets (Phase 2)
     _ensure_column(inspector, "findings", "rule_version", "VARCHAR(20) NOT NULL DEFAULT '1.0.0'")
     _ensure_column(inspector, "findings", "analyzer_name", "VARCHAR(120)")
     _ensure_column(inspector, "findings", "analyzer_version", "VARCHAR(20)")
@@ -56,6 +58,27 @@ def init_db() -> None:
     _ensure_column(inspector, "findings", "detected_at", "DATETIME")
     _ensure_column(inspector, "iocs", "offset", "INTEGER")
     _ensure_column(inspector, "iocs", "occurrences", "INTEGER NOT NULL DEFAULT 1")
+    # Findings investigation workflow (Phase 3)
+    _ensure_column(inspector, "findings", "review_status", "VARCHAR(30) NOT NULL DEFAULT 'OPEN'")
+    _ensure_column(inspector, "findings", "is_false_positive", "BOOLEAN NOT NULL DEFAULT 0")
+    _ensure_column(inspector, "findings", "analyst_notes", "TEXT")
+    _ensure_column(inspector, "findings", "reviewed_by", "VARCHAR(100)")
+    _ensure_column(inspector, "findings", "reviewed_at", "DATETIME")
+    _ensure_column(inspector, "findings", "review_history_json", "TEXT")
+    # Evidence verification telemetry & tags (Phase 3)
+    _ensure_column(inspector, "evidence_items", "manifest_id", "VARCHAR(36)")
+    _ensure_column(inspector, "evidence_items", "last_verified_at", "DATETIME")
+    _ensure_column(inspector, "evidence_items", "last_verification_status", "VARCHAR(50)")
+    _ensure_column(inspector, "evidence_items", "last_verification_details", "TEXT")
+    _ensure_column(inspector, "evidence_items", "tags_json", "TEXT")
+    # Case analyst workflow & closure (Phase 3)
+    _ensure_column(inspector, "cases", "updated_at", "DATETIME")
+    _ensure_column(inspector, "cases", "investigator_notes", "TEXT")
+    _ensure_column(inspector, "cases", "case_summary", "TEXT")
+    _ensure_column(inspector, "cases", "tags_json", "TEXT")
+    _ensure_column(inspector, "cases", "closed_by", "VARCHAR(100)")
+    _ensure_column(inspector, "cases", "closed_at", "DATETIME")
+    _ensure_column(inspector, "cases", "closure_notes", "TEXT")
 
 
 def get_db() -> Generator[Session, None, None]:

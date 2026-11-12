@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Evidence Verification Center{% endblock %}
+{% block breadcrumb %}Evidence Verification Center{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Evidence Verification &amp; Cryptographic Audit Center</h1>
+        <p class="page-subtitle">Multi-factor validation of vault SHA-256 / SHA-1 / MD5 digests, file sizes, Ed25519 manifests, and Chain-of-Custody continuity</p>
+    </div>
+    <div>
+        <form action="/verification/run" method="post" style="display: inline;">
+            <button type="submit" class="btn">Run Full Vault Verification</button>
+        </form>
+    </div>
+</div>
+
+<!-- Custody & Active Key Telemetry -->
+<div class="kpi-grid">
+    <div class="kpi-card {% if custody_valid %}ok{% else %}crit{% endif %}">
+        <div>
+            <div class="kpi-label">Custody Ledger Chain</div>
+            <div class="kpi-value mono" style="font-size: 16px; color: {% if custody_valid %}var(--success){% else %}var(--critical){% endif %};">
+                {% if custody_valid %}CHAIN CONTINUITY VALID{% else %}CHAIN INTEGRITY ERROR{% endif %}
+            </div>
+            <div class="kpi-sub">{{ custody_count }} SHA-256 linked events{% if custody_err %} &bull; {{ custody_err }}{% endif %}</div>
+        </div>
+    </div>
+    <div class="kpi-card ok">
+        <div>
+            <div class="kpi-label">Integrity Verified</div>
+            <div class="kpi-value mono">{{ status_counts.get('INTEGRITY VERIFIED', 0) }}</div>
+            <div class="kpi-sub">Hashes + Ed25519 + Custody match</div>
+        </div>
+    </div>
+    <div class="kpi-card warn">
+        <div>
+            <div class="kpi-label">Signature Invalid / Inconclusive</div>
+            <div class="kpi-value mono">{{ status_counts.get('SIGNATURE INVALID', 0) + status_counts.get('VERIFICATION INCONCLUSIVE', 0) }}</div>
+            <div class="kpi-sub">Unsigned or key-mismatch manifests</div>
+        </div>
+    </div>
+    <div class="kpi-card crit">
+        <div>
+            <div class="kpi-label">Modified / Missing</div>
+            <div class="kpi-value mono">{{ status_counts.get('EVIDENCE MODIFIED', 0) + status_counts.get('EVIDENCE MISSING', 0) }}</div>
+            <div class="kpi-sub">Vault hash/size or file loss detected</div>
+        </div>
+    </div>
+</div>
+
+<div class="panel" style="margin-bottom: 16px;">
+    <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;">
+        <div class="mono" style="font-size: 11.5px; color: var(--text-secondary);">
+            ACTIVE VAULT ED25519 KEY FINGERPRINT: <strong style="color: var(--accent);">{{ active_fp }}</strong>
+        </div>
+        <div style="font-size: 11.5px; color: var(--text-dim);">
+            Forensic Note: A valid Ed25519 manifest signature proves vault integrity since ingestion; it does not prove external source-host trustworthiness prior to acquisition.
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <h2 class="panel-title">Vaulted Artifact Verification Matrix ({{ verifications|length }})</h2>
+        <span class="panel-meta mono">VERIFIED LIVE AGAINST DISK &amp; SQLITE</span>
+    </div>
+
+    {% if verifications %}
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Artifact &amp; UUID</th>
+                    <th>Verification Status</th>
+                    <th>Digest &amp; Size Audit</th>
+                    <th>Ed25519 Manifest</th>
+                    <th>Last Verified (UTC)</th>
+                    <th style="text-align: right;">Inspect</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in verifications %}
+                {% set ev = ev_by_id.get(v.evidence_id) %}
+                {% set vst = v.verification_status %}
+                <tr>
+                    <td>
+                        <div style="font-weight: 700;">
+                            <a href="/evidence/{{ v.evidence_id }}">{{ ev.original_filename if ev else v.evidence_id }}</a>
+                        </div>
+                        <div class="mono" style="font-size: 11px; color: var(--text-dim);">{{ v.evidence_id }}</div>
+                    </td>
+                    <td>
+                        <span class="badge mono {% if vst == 'INTEGRITY VERIFIED' %}badge-success{% elif vst == 'VERIFICATION INCONCLUSIVE' %}badge-warning{% else %}badge-critical{% endif %}">
+                            {{ vst }}
+                        </span>
+                    </td>
+                    <td class="mono" style="font-size: 11px;">
+                        <div>SHA-256: <span style="color: {% if v.expected_sha256 == v.computed_sha256 %}var(--success){% else %}var(--critical){% endif %};">{{ v.computed_sha256[:16] if v.computed_sha256 else 'MISSING' }}&hellip;</span></div>
+                        <div style="color: var(--text-dim);">SHA-1 / MD5: {% if v.expected_sha1 == v.computed_sha1 and v.expected_md5 == v.computed_md5 %}MATCH{% else %}MISMATCH{% endif %} &bull; Size: {{ v.computed_size_bytes }} / {{ v.expected_size_bytes }} B</div>
+                    </td>
+                    <td class="mono" style="font-size: 11px;">
+                        <div>Status: <strong style="color: {% if v.manifest_signature_valid %}var(--success){% else %}var(--warning){% endif %};">{{ v.manifest_status }}</strong></div>
+                        <div style="color: var(--text-dim);">FP: {{ (v.public_key_fingerprint or 'N/A')[:16] }}&hellip;</div>
+                    </td>
+                    <td class="mono" style="font-size: 11px; color: var(--text-muted);">{{ v.last_verified_at[:19].replace('T', ' ') }} UTC</td>
+                    <td style="text-align: right;">
+                        <a href="/evidence/{{ v.evidence_id }}" class="btn btn-outline btn-sm">Workbench</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        No artifacts in vault yet. Ingest evidence from the Triage Console to audit digests and signatures.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

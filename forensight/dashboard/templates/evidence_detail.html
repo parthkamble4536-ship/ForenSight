@@ -21,15 +21,27 @@
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
             <h1 class="page-title">{{ evidence.original_filename }}</h1>
             <span class="badge badge-info">{{ evidence.identified_type }}</span>
+            {% if verification_summary %}
+            <span class="badge mono {% if verification_summary.verification_status == 'INTEGRITY VERIFIED' %}badge-success{% elif verification_summary.verification_status == 'VERIFICATION INCONCLUSIVE' %}badge-warning{% else %}badge-critical{% endif %}">
+                {{ verification_summary.verification_status }}
+            </span>
+            {% endif %}
             {% if evidence.is_extension_mismatch %}
             <span class="badge badge-critical">EXTENSION MASQUERADE ({{ evidence.declared_extension or 'NONE' }} &rarr; {{ evidence.identified_type }})</span>
             {% endif %}
+            {% for tag in evidence_tags %}
+            <span class="badge badge-neutral mono">#{{ tag }}</span>
+            {% endfor %}
         </div>
         <div class="mono" style="margin-top: 5px; color: var(--text-dim); font-size: 11.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
             <span>UUID: {{ evidence.evidence_id }}</span>
             <button type="button" class="btn btn-outline btn-xs" data-copy="{{ evidence.evidence_id }}" onclick="copyToClipboard(this.getAttribute('data-copy'), this)">Copy UUID</button>
             <span>&bull;</span>
             <span>MIME: {{ evidence.mime_type }}</span>
+            <form action="/evidence/{{ evidence.evidence_id }}/tags" method="post" style="display: inline-flex; gap: 4px; align-items: center; margin-left: 6px;">
+                <input type="text" name="tags" value="{{ evidence_tags|join(', ') }}" placeholder="tags: dropper, phishing" class="input-dark mono" style="padding: 2px 6px; font-size: 11px; width: 170px;">
+                <button type="submit" class="btn btn-outline btn-xs">Save Tags</button>
+            </form>
         </div>
     </div>
 
@@ -90,6 +102,9 @@
         <div>SIZE: <strong style="color: var(--text-primary);">{{ "{:,}".format(evidence.file_size_bytes) }} B</strong></div>
         <div>ENTROPY: <strong style="color: {{ 'var(--warning)' if evidence.entropy >= 7.0 else 'var(--text-primary)' }};">{{ "%.2f"|format(evidence.entropy) }} / 8.0</strong></div>
         <div>VAULT: <span class="badge badge-success">READ-ONLY</span></div>
+        {% if verification_summary %}
+        <div>AUDIT: <strong style="color: {% if verification_summary.verification_status == 'INTEGRITY VERIFIED' %}var(--success){% elif verification_summary.verification_status == 'VERIFICATION INCONCLUSIVE' %}var(--warning){% else %}var(--critical){% endif %};">{{ verification_summary.verification_status }}</strong></div>
+        {% endif %}
     </div>
 </div>
 
@@ -99,7 +114,7 @@
     <button class="tab-btn" data-tab="tab-findings">Detections &amp; MITRE ({{ analysis.findings|length if analysis else 0 }})</button>
     <button class="tab-btn" data-tab="tab-structure">Structural Dissection</button>
     <button class="tab-btn" data-tab="tab-iocs">IOC Intelligence ({{ analysis.iocs|length if analysis else 0 }})</button>
-    <button class="tab-btn" data-tab="tab-timeline">Timeline ({{ timeline_events|length }})</button>
+    <button class="tab-btn" data-tab="tab-timeline">Timeline ({{ unified_timeline|length }})</button>
     <button class="tab-btn" data-tab="tab-custody">Chain of Custody ({{ custody_events|length }})</button>
 </div>
 
@@ -222,8 +237,11 @@
                     {% for f in analysis.findings %}
                     <tr class="finding-row" data-severity="{{ f.severity|upper }}">
                         <td>
-                            <div class="mono" style="font-weight: 700; color: var(--text-primary);">{{ f.rule_id }}</div>
+                            <div class="mono" style="font-weight: 700; color: var(--text-primary);">{{ f.rule_id }} <span style="font-size: 10px; color: var(--text-dim);">v{{ f.rule_version or '1.0.0' }}</span></div>
                             <div class="mono" style="font-size: 10.5px; color: var(--text-dim); margin-top: 2px;">{{ f.category }}</div>
+                            {% if f.analyzer_name %}
+                            <div class="mono" style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">{{ f.analyzer_name }} (v{{ f.analyzer_version or '2.0.0' }})</div>
+                            {% endif %}
                             {% if f.mitre_technique %}
                             <span class="badge badge-mitre mono" style="margin-top: 5px;">ATT&amp;CK {{ f.mitre_technique }}</span>
                             {% endif %}
@@ -232,16 +250,37 @@
                             <span class="badge {% if f.severity == 'CRITICAL' %}badge-critical{% elif f.severity == 'HIGH' %}badge-danger{% elif f.severity == 'MEDIUM' %}badge-warning{% else %}badge-info{% endif %}">
                                 {{ f.severity }}
                             </span>
+                            <div class="mono" style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">
+                                {{ f.review_status or 'OPEN' }}{% if f.is_false_positive %} (FP){% endif %}
+                            </div>
                         </td>
                         <td class="mono" style="font-weight: 700; color: var(--accent);">+{{ f.score_impact }}</td>
                         <td>
                             <div style="font-weight: 700; color: var(--text-primary);">{{ f.title }}</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">{{ f.description }}</div>
-                            {% if f.object_reference %}
-                            <div class="mono" style="font-size: 11px; color: var(--accent); margin-top: 4px;">Object: {{ f.object_reference }}</div>
+                            {% if f.object_reference or f.offset is not none %}
+                            <div class="mono" style="font-size: 11px; color: var(--accent); margin-top: 4px;">
+                                {% if f.object_reference %}Object: {{ f.object_reference }}{% endif %}
+                                {% if f.offset is not none %} &bull; Offset: {{ f.offset }}{% endif %}
+                            </div>
+                            {% endif %}
+                            {% if f.analyst_notes %}
+                            <div class="mono" style="font-size: 11px; color: var(--success); margin-top: 4px;">Analyst Note ({{ f.reviewed_by or 'SOC' }}): {{ f.analyst_notes }}</div>
                             {% endif %}
                         </td>
-                        <td style="font-size: 12px; color: var(--text-muted);">{{ f.explanation or 'No supplemental guidance provided.' }}</td>
+                        <td style="font-size: 12px; color: var(--text-muted);">
+                            <div>{{ f.explanation or 'No supplemental guidance provided.' }}</div>
+                            <form method="post" action="/findings/{{ f.finding_id }}/review" style="margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap;">
+                                <input type="hidden" name="redirect_to" value="/evidence/{{ evidence.evidence_id }}">
+                                <select name="review_status" class="select-dark" style="font-size: 10.5px; padding: 2px 4px;">
+                                    {% for st in ['OPEN', 'CONFIRMED', 'NEEDS_FOLLOWUP', 'FALSE_POSITIVE'] %}
+                                    <option value="{{ st }}" {% if (f.review_status or 'OPEN') == st %}selected{% endif %}>{{ st }}</option>
+                                    {% endfor %}
+                                </select>
+                                <input type="text" name="analyst_notes" value="{{ f.analyst_notes or '' }}" placeholder="Disposition note..." class="input-dark" style="font-size: 10.5px; padding: 2px 6px; width: 120px;">
+                                <button type="submit" class="btn btn-outline btn-xs">Review</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -370,16 +409,22 @@
             <h3 class="panel-title">Artifact Metadata Timeline</h3>
             <span class="panel-meta mono">UTC NORMALIZED ARTIFACT TIMESTAMPS</span>
         </div>
-        {% if timeline_events %}
+        <div class="disclaimer-strip" style="margin-bottom: 12px;">{{ timeline_disclaimer }}</div>
+        {% if unified_timeline %}
         <div class="timeline-list">
-            {% for ev in timeline_events %}
+            {% for ev in unified_timeline %}
             <div class="timeline-item">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <span class="mono" style="font-size: 12.5px; font-weight: 700; color: var(--accent);">{{ ev.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
-                    <span class="badge badge-warning">{{ ev.timestamp_type.value }}</span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span class="badge badge-warning">{{ ev.category }}</span>
+                        <span class="badge badge-neutral mono">{{ ev.trust_note }}</span>
+                    </div>
                 </div>
                 <div style="font-size: 13px; color: var(--text-primary); margin-top: 5px; font-weight: 600;">{{ ev.description }}</div>
-                <div class="mono" style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">Source Field: {{ ev.source }}</div>
+                <div class="mono" style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">
+                    Source Field: {{ ev.source }} &bull; Original Raw Timestamp: {{ ev.original_timestamp }}
+                </div>
             </div>
             {% endfor %}
         </div>

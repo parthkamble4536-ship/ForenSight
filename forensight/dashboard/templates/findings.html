@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Findings Investigation Center{% endblock %}
+{% block breadcrumb %}Findings Investigation Center{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Forensic Findings Investigation Center</h1>
+        <p class="page-subtitle">Distinguish automated rule observations from analyst dispositions, review statuses, and false-positive determinations</p>
+    </div>
+</div>
+
+<!-- Filter Controls -->
+<div class="panel" style="margin-bottom: 16px;">
+    <form method="get" action="/findings" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+        <div>
+            <label class="form-label" style="font-size: 11px;">Severity</label>
+            <select name="severity" class="select-dark">
+                <option value="">All Severities</option>
+                {% for s in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] %}
+                <option value="{{ s }}" {% if filters.severity == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label" style="font-size: 11px;">Confidence</label>
+            <select name="confidence" class="select-dark">
+                <option value="">All Confidence</option>
+                {% for c in ['CONFIRMED', 'HIGH', 'MEDIUM', 'LOW', 'INCONCLUSIVE'] %}
+                <option value="{{ c }}" {% if filters.confidence == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label" style="font-size: 11px;">Review Status</label>
+            <select name="review_status" class="select-dark">
+                <option value="">All Dispositions</option>
+                {% for rs in ['OPEN', 'CONFIRMED', 'NEEDS_FOLLOWUP', 'FALSE_POSITIVE'] %}
+                <option value="{{ rs }}" {% if filters.review_status == rs %}selected{% endif %}>{{ rs }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label" style="font-size: 11px;">Rule ID</label>
+            <input type="text" name="rule_id" value="{{ filters.rule_id }}" placeholder="e.g. PE-SEC" class="input-dark mono">
+        </div>
+        <div>
+            <label class="form-label" style="font-size: 11px;">Analyzer Source</label>
+            <input type="text" name="analyzer_name" value="{{ filters.analyzer_name }}" placeholder="e.g. PDF" class="input-dark mono">
+        </div>
+        <div style="display: flex; gap: 6px;">
+            <button type="submit" class="btn btn-sm">Apply Filters</button>
+            <a href="/findings" class="btn btn-outline btn-sm">Reset</a>
+        </div>
+    </form>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <h2 class="panel-title">Cataloged Detections ({{ records|length }})</h2>
+        <span class="panel-meta mono">RULE PROVENANCE &bull; ANALYST INTERPRETATION</span>
+    </div>
+
+    {% if records %}
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+        {% for rec in records %}
+        {% set f = rec.finding %}
+        {% set ev = rec.evidence %}
+        {% set c = rec.case %}
+        <div style="background: var(--bg-well); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span class="badge {% if f.severity == 'CRITICAL' %}badge-critical{% elif f.severity == 'HIGH' %}badge-danger{% elif f.severity == 'MEDIUM' %}badge-warning{% else %}badge-info{% endif %}">{{ f.severity }}</span>
+                        <span class="badge badge-neutral mono">CONF: {{ f.confidence }}</span>
+                        <span class="badge mono {% if f.review_status == 'CONFIRMED' %}badge-danger{% elif f.review_status == 'FALSE_POSITIVE' %}badge-success{% elif f.review_status == 'NEEDS_FOLLOWUP' %}badge-warning{% else %}badge-info{% endif %}">
+                            STATUS: {{ f.review_status }}
+                        </span>
+                        {% if f.is_false_positive %}
+                        <span class="badge badge-success mono">FALSE POSITIVE</span>
+                        {% endif %}
+                        <strong style="font-size: 14px; color: var(--text-primary);">{{ f.title }}</strong>
+                    </div>
+                    <div class="mono" style="font-size: 11px; color: var(--text-dim); margin-top: 5px;">
+                        Rule: <strong style="color: var(--accent);">{{ f.rule_id }}</strong> (v{{ f.rule_version or '1.0.0' }})
+                        &bull; Analyzer: {{ f.analyzer_name or 'Static Parser' }} (v{{ f.analyzer_version or '2.0.0' }})
+                        {% if f.object_reference %}&bull; Object: {{ f.object_reference }}{% endif %}
+                        {% if f.offset is not none %}&bull; Offset: {{ f.offset }}{% endif %}
+                        {% if f.mitre_technique %}&bull; ATT&amp;CK {{ f.mitre_technique }}{% endif %}
+                    </div>
+                    <div class="mono" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        Artifact: <a href="/evidence/{{ ev.evidence_id }}">{{ ev.original_filename }}</a>
+                        {% if c %}&bull; Case: <a href="/cases/{{ c.case_id }}">{{ c.title }}</a>{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 10px;">
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                    <div class="mono" style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Automated Observation &amp; Rationale</div>
+                    <div style="margin-top: 3px;">{{ f.description }}</div>
+                    {% if f.explanation %}
+                    <div style="margin-top: 4px; color: var(--text-muted);">{{ f.explanation }}</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <div class="mono" style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Analyst Disposition &amp; Notes</div>
+                    <form method="post" action="/findings/{{ f.finding_id }}/review" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                        <input type="hidden" name="redirect_to" value="/findings">
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            <select name="review_status" class="select-dark">
+                                {% for st in ['OPEN', 'CONFIRMED', 'NEEDS_FOLLOWUP', 'FALSE_POSITIVE'] %}
+                                <option value="{{ st }}" {% if f.review_status == st %}selected{% endif %}>{{ st }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="text" name="reviewed_by" value="{{ f.reviewed_by or 'SOC Analyst' }}" placeholder="Reviewer" class="input-dark" style="width: 130px;">
+                            <label class="mono" style="font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted);">
+                                <input type="checkbox" name="is_false_positive" value="true" {% if f.is_false_positive %}checked{% endif %}> False Positive
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <input type="text" name="analyst_notes" value="{{ f.analyst_notes or '' }}" placeholder="Analyst triage notes..." class="input-dark" style="flex: 1;">
+                            <button type="submit" class="btn btn-outline btn-sm">Save Disposition</button>
+                        </div>
+                    </form>
+                    {% if rec.review_history %}
+                    <div class="mono" style="font-size: 10.5px; color: var(--text-dim); margin-top: 5px;">
+                        History: {{ rec.review_history|length }} review update(s) &mdash; Latest by {{ rec.review_history[-1].actor }} ({{ rec.review_history[-1].new_status }})
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        No findings match the current filters.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

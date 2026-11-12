@@ -89,29 +89,47 @@ class EvidenceCorrelator:
                                 source_evidence_id=id_a,
                                 target_evidence_id=id_b,
                                 relationship_type=RelationshipType.SHARED_AUTHOR,
-                                reason=f"Identical document creator metadata: '{author_a.strip()}'",
+                                reason=(
+                                    f"Identical document creator metadata: '{author_a.strip()}' "
+                                    "(heuristic correlation only; metadata is unverified and does not prove common ownership)"
+                                ),
                                 shared_value=author_a.strip(),
                                 weight=0.75,
                             )
                         )
 
-                # 4. Check for Email Attachment Relationship
+                # 4. Check for Email Attachment Relationships (both directions)
                 email_attachments_a = res_a.analyzer_details.get("attachments", [])
-                if email_attachments_a:
-                    for att in email_attachments_a:
-                        if att.get("sha256") == res_b.evidence.hashes.sha256:
-                            relationships.append(
-                                EvidenceRelationship(
-                                    relationship_id=str(uuid.uuid4()),
-                                    case_id=case_id,
-                                    source_evidence_id=id_a,
-                                    target_evidence_id=id_b,
-                                    relationship_type=RelationshipType.EMAIL_ATTACHMENT,
-                                    reason=f"Evidence [{res_b.evidence.original_filename}] was transported as attachment in email [{res_a.evidence.original_filename}]",
-                                    shared_value=att.get("sha256"),
-                                    weight=1.0,
-                                )
+                for att in email_attachments_a or []:
+                    if att.get("sha256") == res_b.evidence.hashes.sha256:
+                        relationships.append(
+                            EvidenceRelationship(
+                                relationship_id=str(uuid.uuid4()),
+                                case_id=case_id,
+                                source_evidence_id=id_a,
+                                target_evidence_id=id_b,
+                                relationship_type=RelationshipType.EMAIL_ATTACHMENT,
+                                reason=f"Evidence [{res_b.evidence.original_filename}] matches attachment digest in email [{res_a.evidence.original_filename}]",
+                                shared_value=att.get("sha256"),
+                                weight=1.0,
                             )
+                        )
+
+                email_attachments_b = res_b.analyzer_details.get("attachments", [])
+                for att in email_attachments_b or []:
+                    if att.get("sha256") == res_a.evidence.hashes.sha256:
+                        relationships.append(
+                            EvidenceRelationship(
+                                relationship_id=str(uuid.uuid4()),
+                                case_id=case_id,
+                                source_evidence_id=id_b,
+                                target_evidence_id=id_a,
+                                relationship_type=RelationshipType.EMAIL_ATTACHMENT,
+                                reason=f"Evidence [{res_a.evidence.original_filename}] matches attachment digest in email [{res_b.evidence.original_filename}]",
+                                shared_value=att.get("sha256"),
+                                weight=1.0,
+                            )
+                        )
 
         return relationships
 

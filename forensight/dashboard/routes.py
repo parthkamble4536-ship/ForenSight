@@ -44,15 +44,22 @@ from forensight.database import (
     get_db,
     get_evidence,
     get_latest_analysis_run,
+    list_case_activities,
     list_cases,
     list_custody_events,
     list_evidence,
+    list_findings,
     list_timeline_events,
     record_analysis_run,
     save_custody_event,
+    update_case_workflow,
+    update_evidence_tags,
+    update_finding_review,
 )
 from forensight.evidence.correlation import evidence_correlator
 from forensight.evidence.custody import custody_ledger
+from forensight.evidence.timeline import timeline_aggregator
+from forensight.evidence.verification import verify_evidence_comprehensive
 from forensight.ingestion.pipeline import ingestion_pipeline
 from forensight.intelligence.scoring import risk_engine
 from forensight.reports.generator import report_generator
@@ -322,6 +329,27 @@ def case_detail_page(case_id: str, request: Request, db: Session = Depends(get_d
             )
 
     relationships = evidence_correlator.correlate_case_evidence(case_results)
+    activities = list_case_activities(db, case_id=case_id)
+    case_tags = []
+    if getattr(case, "tags_json", None):
+        try:
+            case_tags = json.loads(case.tags_json)
+        except Exception:
+            case_tags = []
+
+    case_timeline_events: List[TimelineEvent] = []
+    case_custody_events = []
+    ev_name_map = {e.evidence_id: e.original_filename for e in evidence_items}
+    for e in evidence_items:
+        case_timeline_events.extend(list_timeline_events(db, evidence_id=e.evidence_id))
+        case_custody_events.extend(list_custody_events(db, evidence_id=e.evidence_id))
+
+    unified_timeline = timeline_aggregator.build_unified_investigation_timeline(
+        timeline_events=case_timeline_events,
+        custody_rows=case_custody_events,
+        case_activities=activities,
+        evidence_names=ev_name_map,
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -332,6 +360,198 @@ def case_detail_page(case_id: str, request: Request, db: Session = Depends(get_d
             "evidence_items": evidence_items,
             "relationships": relationships,
             "risk_map": risk_map,
+            "activities": activities,
+            "case_tags": case_tags,
+            "unified_timeline": unified_timeline,
+            "timeline_disclaimer": timeline_aggregator.METADATA_DISCLAIMER,
+        },
+    )
+
+
+@dashboard_router.post("/cases/{case_id}/workflow")
+def update_case_workflow_form(
+    case_id: str,
+    status: str = Form(...),
+    investigator: str = Form("Lead Investigator"),
+    investigator_notes: Optional[str] = Form(None),
+    case_summary: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    closure_notes: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Handle case workflow update submission (status, notes, tags, closure)."""
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+    try:
+        updated = update_case_workflow(
+            db,
+            case_id,
+            status=status,
+            investigator=investigator,
+            investigator_notes=investigator_notes,
+            case_summary=case_summary,
+            tags=tag_list,
+            closure_notes=closure_notes,
+            actor=investigator,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return RedirectResponse(url=f"/cases/{case_id}", status_code=303)
+
+
+@dashboard_router.post("/evidence/{evidence_id}/tags")
+def update_evidence_tags_form(
+    evidence_id: str,
+    tags: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Save analyst classification tags for an evidence artifact."""
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+    ev = update_evidence_tags(db, evidence_id, tag_list)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return RedirectResponse(url=f"/evidence/{evidence_id}", status_code=303)
+
+
+@dashboard_router.get("/verification", response_class=HTMLResponse)
+def verification_center_page(request: Request, db: Session = Depends(get_db)):
+    """Dedicated Evidence Verification Center showing hashes, Ed25519 manifest, and custody status."""
+    items = list_evidence(db, limit=100)
+    _, pub_key = key_manager.load_or_create_keypair()
+    active_fp = key_manager.get_public_key_fingerprint(pub_key)
+    custody_valid, custody_err, custody_events = custody_ledger.verify_persisted_chain(db)
+
+    verifications = [verify_evidence_comprehensive(db, ev.evidence_id, record_custody=False) for ev in items]
+    verifications = [v for v in verifications if v is not None]
+    ev_by_id = {ev.evidence_id: ev for ev in items}
+
+    status_counts: dict[str, int] = {}
+    for v in verifications:
+        st = v["verification_status"]
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+    return templates.TemplateResponse(
+        request=request,
+        name="verification.html",
+        context={
+            "active_tab": "verification",
+            "verifications": verifications,
+            "ev_by_id": ev_by_id,
+            "status_counts": status_counts,
+            "active_fp": active_fp,
+            "custody_valid": custody_valid,
+            "custody_err": custody_err,
+            "custody_count": len(custody_events),
+        },
+    )
+
+
+@dashboard_router.post("/verification/run")
+def verification_run_all_form(db: Session = Depends(get_db)):
+    """Trigger full verification across all vaulted items and record custody audit."""
+    for ev in list_evidence(db, limit=200):
+        verify_evidence_comprehensive(db, ev.evidence_id, record_custody=False)
+    return RedirectResponse(url="/verification", status_code=303)
+
+
+@dashboard_router.get("/findings", response_class=HTMLResponse)
+def findings_center_page(
+    request: Request,
+    severity: Optional[str] = None,
+    confidence: Optional[str] = None,
+    review_status: Optional[str] = None,
+    rule_id: Optional[str] = None,
+    analyzer_name: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Findings Investigation Center with analyst review disposition & provenance."""
+    records = list_findings(
+        db,
+        severity=severity or None,
+        confidence=confidence or None,
+        review_status=review_status or None,
+        rule_id=rule_id or None,
+        analyzer_name=analyzer_name or None,
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="findings.html",
+        context={
+            "active_tab": "findings",
+            "records": records,
+            "filters": {
+                "severity": severity or "",
+                "confidence": confidence or "",
+                "review_status": review_status or "",
+                "rule_id": rule_id or "",
+                "analyzer_name": analyzer_name or "",
+            },
+        },
+    )
+
+
+@dashboard_router.post("/findings/{finding_id}/review")
+def review_finding_form(
+    finding_id: str,
+    review_status: str = Form(...),
+    is_false_positive: Optional[str] = Form(None),
+    analyst_notes: Optional[str] = Form(None),
+    reviewed_by: str = Form("SOC Analyst"),
+    redirect_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Persist analyst finding disposition and redirect cleanly."""
+    fp_flag = str(is_false_positive or "").lower() in ("true", "1", "on", "yes")
+    try:
+        updated = update_finding_review(
+            db,
+            finding_id,
+            review_status=review_status,
+            is_false_positive=fp_flag,
+            analyst_notes=analyst_notes,
+            reviewed_by=reviewed_by,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    target = redirect_to if (redirect_to and redirect_to.startswith("/")) else "/findings"
+    return RedirectResponse(url=target, status_code=303)
+
+
+@dashboard_router.get("/timeline", response_class=HTMLResponse)
+def global_timeline_page(
+    request: Request,
+    case_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Advanced multi-source UTC chronological timeline explorer."""
+    cases = list_cases(db, limit=50)
+    ev_items = list_evidence(db, case_id=case_id or None, limit=100)
+    ev_map = {e.evidence_id: e.original_filename for e in ev_items}
+    t_events: List[TimelineEvent] = []
+    c_events = []
+    for e in ev_items:
+        t_events.extend(list_timeline_events(db, evidence_id=e.evidence_id))
+        c_events.extend(list_custody_events(db, evidence_id=e.evidence_id))
+    activities = list_case_activities(db, case_id=case_id) if case_id else []
+
+    unified = timeline_aggregator.build_unified_investigation_timeline(
+        timeline_events=t_events,
+        custody_rows=c_events,
+        case_activities=activities,
+        evidence_names=ev_map,
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="timeline.html",
+        context={
+            "active_tab": "timeline",
+            "events": unified,
+            "cases": cases,
+            "selected_case_id": case_id or "",
+            "disclaimer": timeline_aggregator.METADATA_DISCLAIMER,
         },
     )
 
@@ -366,6 +586,20 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
 
     # Load persisted normalized timeline events from SQLite (never re-run analyzer on GET)
     timeline_events = list_timeline_events(db, evidence_id=evidence_id)
+    unified_timeline = timeline_aggregator.build_unified_investigation_timeline(
+        timeline_events=timeline_events,
+        custody_rows=custody_events,
+        evidence_names={ev.evidence_id: ev.original_filename},
+    )
+
+    evidence_tags = []
+    if getattr(ev, "tags_json", None):
+        try:
+            evidence_tags = json.loads(ev.tags_json)
+        except Exception:
+            evidence_tags = []
+
+    verification_summary = verify_evidence_comprehensive(db, evidence_id, record_custody=False)
 
     return templates.TemplateResponse(
         request=request,
@@ -380,6 +614,10 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
             "parsed_details": parsed_details,
             "severity_counts": severity_counts,
             "timeline_events": timeline_events,
+            "unified_timeline": unified_timeline,
+            "timeline_disclaimer": timeline_aggregator.METADATA_DISCLAIMER,
+            "evidence_tags": evidence_tags,
+            "verification_summary": verification_summary,
         },
     )
 
@@ -467,6 +705,21 @@ def _build_analysis_result(
     )
 
 
+def _build_export_manifest(ev, result: AnalysisResult) -> EvidenceManifest:
+    acq = ev.stored_at if ev.stored_at.tzinfo else ev.stored_at.replace(tzinfo=timezone.utc)
+    return EvidenceManifest(
+        manifest_id=getattr(ev, "manifest_id", None) or str(ev.evidence_id),
+        evidence_id=ev.evidence_id,
+        case_id=ev.case_id,
+        original_filename=ev.original_filename,
+        hashes=result.evidence.hashes,
+        file_type=ev.identified_type,
+        acquired_at=acq.astimezone(timezone.utc),
+        signature=ev.manifest_signature,
+        public_key_fingerprint=ev.public_key_fingerprint,
+    )
+
+
 @dashboard_router.get("/evidence/{evidence_id}/export/html")
 def export_html(evidence_id: str, db: Session = Depends(get_db)):
     """Export self-contained standalone HTML forensic report."""
@@ -477,18 +730,7 @@ def export_html(evidence_id: str, db: Session = Depends(get_db)):
     run = get_latest_analysis_run(db, evidence_id)
     timeline_events = list_timeline_events(db, evidence_id=evidence_id)
     result = _build_analysis_result(ev, run, timeline_events=timeline_events)
-
-    manifest = EvidenceManifest(
-        manifest_id=str(ev.evidence_id),
-        evidence_id=ev.evidence_id,
-        case_id=ev.case_id,
-        original_filename=ev.original_filename,
-        hashes=result.evidence.hashes,
-        file_type=ev.identified_type,
-        acquired_at=ev.stored_at,
-        signature=ev.manifest_signature,
-        public_key_fingerprint=ev.public_key_fingerprint,
-    )
+    manifest = _build_export_manifest(ev, result)
 
     html_content = report_generator.generate_html_report(result, manifest=manifest)
     return HTMLResponse(content=html_content)
@@ -504,18 +746,7 @@ def export_json(evidence_id: str, db: Session = Depends(get_db)):
     run = get_latest_analysis_run(db, evidence_id)
     timeline_events = list_timeline_events(db, evidence_id=evidence_id)
     result = _build_analysis_result(ev, run, timeline_events=timeline_events)
-
-    manifest = EvidenceManifest(
-        manifest_id=str(ev.evidence_id),
-        evidence_id=ev.evidence_id,
-        case_id=ev.case_id,
-        original_filename=ev.original_filename,
-        hashes=result.evidence.hashes,
-        file_type=ev.identified_type,
-        acquired_at=ev.stored_at,
-        signature=ev.manifest_signature,
-        public_key_fingerprint=ev.public_key_fingerprint,
-    )
+    manifest = _build_export_manifest(ev, result)
 
     json_content = report_generator.generate_json_report(result, manifest=manifest)
     return Response(content=json_content, media_type="application/json")
@@ -531,18 +762,7 @@ def export_pdf(evidence_id: str, db: Session = Depends(get_db)):
     run = get_latest_analysis_run(db, evidence_id)
     timeline_events = list_timeline_events(db, evidence_id=evidence_id)
     result = _build_analysis_result(ev, run, timeline_events=timeline_events)
-
-    manifest = EvidenceManifest(
-        manifest_id=str(ev.evidence_id),
-        evidence_id=ev.evidence_id,
-        case_id=ev.case_id,
-        original_filename=ev.original_filename,
-        hashes=result.evidence.hashes,
-        file_type=ev.identified_type,
-        acquired_at=ev.stored_at,
-        signature=ev.manifest_signature,
-        public_key_fingerprint=ev.public_key_fingerprint,
-    )
+    manifest = _build_export_manifest(ev, result)
 
     pdf_path = settings.reports_dir / f"forensight_report_{evidence_id}.pdf"
     report_generator.generate_pdf_report(result, output_path=pdf_path, manifest=manifest)

@@ -247,14 +247,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const statusBox = document.getElementById("integrity-result-box");
                 if (statusBox) {
+                    const vStatus = result.verification_status || (result.is_valid ? "INTEGRITY VERIFIED" : "EVIDENCE MODIFIED");
                     statusBox.style.display = "block";
-                    if (result.is_valid) {
+                    statusBox.textContent = "";
+                    const titleEl = document.createElement("strong");
+                    const msgEl = document.createElement("span");
+
+                    if (vStatus === "INTEGRITY VERIFIED") {
                         statusBox.className = "badge-success";
-                        statusBox.innerHTML = `<strong>[PASS] VAULT INTEGRITY VERIFIED:</strong> Live SHA-256 (${result.computed_sha256.slice(0, 16)}...) &amp; size (${result.computed_size_bytes} B) match acquisition digests. Storage boundary intact.`;
+                        titleEl.textContent = `[PASS] ${vStatus}: `;
+                        msgEl.textContent = `SHA-256 (${(result.computed_sha256 || "").slice(0, 16)}...) & size (${result.computed_size_bytes} B) matched; Ed25519 manifest & custody chain verified.`;
+                    } else if (vStatus === "VERIFICATION INCONCLUSIVE") {
+                        statusBox.className = "badge-warning";
+                        titleEl.textContent = `[WARN] ${vStatus}: `;
+                        msgEl.textContent = result.combined_details || result.details || "Partial verification only.";
                     } else {
                         statusBox.className = "badge-critical";
-                        statusBox.innerHTML = `<strong>[ALERT] INTEGRITY COMPROMISED:</strong> ${result.details}`;
+                        titleEl.textContent = `[ALERT] ${vStatus}: `;
+                        msgEl.textContent = result.combined_details || result.details || "Cryptographic or file integrity mismatch.";
                     }
+                    statusBox.appendChild(titleEl);
+                    statusBox.appendChild(msgEl);
                 }
             } catch (err) {
                 alert("Integrity verification request failed: " + err);

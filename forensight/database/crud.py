@@ -24,6 +24,7 @@ from forensight.core.types import (
 )
 from forensight.database.models import (
     AnalysisRunModel,
+    CaseActivityModel,
     CaseModel,
     CustodyEventModel,
     EvidenceModel,
@@ -33,19 +34,140 @@ from forensight.database.models import (
 )
 
 
+ALLOWED_CASE_STATUSES = {"OPEN", "IN_PROGRESS", "UNDER_REVIEW", "CLOSED"}
+ALLOWED_FINDING_STATUSES = {"OPEN", "CONFIRMED", "NEEDS_FOLLOWUP", "FALSE_POSITIVE"}
+
+
 # --- Case Operations ---
 
 def create_case(db: Session, title: str, description: Optional[str] = None, investigator: str = "Lead Investigator") -> CaseModel:
-    """Create and persist a new investigation case."""
+    """Create and persist a new investigation case with initial workflow history."""
+    now = datetime.now(timezone.utc)
+    case_id = str(uuid.uuid4())
     case = CaseModel(
-        case_id=str(uuid.uuid4()),
+        case_id=case_id,
         title=title,
         description=description,
         investigator=investigator,
-        created_at=datetime.now(timezone.utc),
-        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+        status="OPEN",
     )
     db.add(case)
+    db.add(
+        CaseActivityModel(
+            activity_id=str(uuid.uuid4()),
+            case_id=case_id,
+            actor=investigator,
+            action="CASE_OPENED",
+            details=f"Case dossier '{title}' opened by {investigator}.",
+            created_at=now,
+        )
+    )
+    db.commit()
+    db.refresh(case)
+    return case
+
+
+def record_case_activity(
+    db: Session,
+    case_id: str,
+    actor: str,
+    action: str,
+    details: str,
+) -> CaseActivityModel:
+    """Append an audit activity record to a case dossier."""
+    act = CaseActivityModel(
+        activity_id=str(uuid.uuid4()),
+        case_id=case_id,
+        actor=actor or "analyst",
+        action=action,
+        details=details,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(act)
+    db.commit()
+    db.refresh(act)
+    return act
+
+
+def list_case_activities(db: Session, case_id: str, limit: int = 100) -> List[CaseActivityModel]:
+    """Retrieve case workflow & activity history chronologically (newest first)."""
+    return (
+        db.query(CaseActivityModel)
+        .filter(CaseActivityModel.case_id == case_id)
+        .order_by(desc(CaseActivityModel.created_at))
+        .limit(limit)
+        .all()
+    )
+
+
+def update_case_workflow(
+    db: Session,
+    case_id: str,
+    *,
+    status: Optional[str] = None,
+    investigator: Optional[str] = None,
+    investigator_notes: Optional[str] = None,
+    case_summary: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    closure_notes: Optional[str] = None,
+    actor: str = "Lead Investigator",
+) -> Optional[CaseModel]:
+    """Update case status, notes, tags, summary, and closure attribution."""
+    case = get_case(db, case_id)
+    if not case:
+        return None
+
+    now = datetime.now(timezone.utc)
+    changes: List[str] = []
+
+    if status is not None:
+        norm_status = status.strip().upper()
+        if norm_status not in ALLOWED_CASE_STATUSES:
+            raise ValueError(f"Unsupported case status: {status}. Allowed: {sorted(ALLOWED_CASE_STATUSES)}")
+        if case.status != norm_status:
+            changes.append(f"status {case.status} -> {norm_status}")
+            case.status = norm_status
+            if norm_status == "CLOSED":
+                case.closed_by = actor
+                case.closed_at = now
+            elif case.closed_at is not None:
+                case.closed_by = None
+                case.closed_at = None
+
+    if investigator is not None and investigator.strip():
+        if case.investigator != investigator.strip():
+            changes.append(f"investigator -> {investigator.strip()}")
+            case.investigator = investigator.strip()
+
+    if investigator_notes is not None:
+        case.investigator_notes = investigator_notes.strip() or None
+        changes.append("investigator notes updated")
+
+    if case_summary is not None:
+        case.case_summary = case_summary.strip() or None
+        changes.append("case summary updated")
+
+    if tags is not None:
+        cleaned_tags = sorted({t.strip() for t in tags if t and t.strip()})[:30]
+        case.tags_json = json.dumps(cleaned_tags)
+        changes.append(f"tags updated ({len(cleaned_tags)})")
+
+    if closure_notes is not None:
+        case.closure_notes = closure_notes.strip() or None
+
+    case.updated_at = now
+    db.add(
+        CaseActivityModel(
+            activity_id=str(uuid.uuid4()),
+            case_id=case_id,
+            actor=actor or case.investigator,
+            action="CASE_WORKFLOW_UPDATED" if case.status != "CLOSED" else "CASE_CLOSED",
+            details="; ".join(changes) if changes else "Case workflow metadata saved.",
+            created_at=now,
+        )
+    )
     db.commit()
     db.refresh(case)
     return case
@@ -87,6 +209,7 @@ def create_evidence(
         entropy=metadata.entropy,
         stored_at=evidence.stored_at,
         is_read_only=evidence.is_read_only,
+        manifest_id=manifest.manifest_id if manifest else None,
         manifest_signature=manifest.signature if manifest else None,
         public_key_fingerprint=manifest.public_key_fingerprint if manifest else None,
     )
@@ -342,4 +465,175 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
         "suspicious_evidence": suspicious_count,
         "critical_findings": critical_findings_count,
     }
+
+
+# --- Verification, Evidence Tags & Finding Investigation Operations (Phase 3) ---
+
+def update_evidence_tags(db: Session, evidence_id: str, tags: List[str]) -> Optional[EvidenceModel]:
+    """Persist normalized analyst tags on an evidence record."""
+    ev = get_evidence(db, evidence_id)
+    if not ev:
+        return None
+    cleaned = sorted({t.strip() for t in tags if t and t.strip()})[:30]
+    ev.tags_json = json.dumps(cleaned)
+    if ev.case_id:
+        db.add(
+            CaseActivityModel(
+                activity_id=str(uuid.uuid4()),
+                case_id=ev.case_id,
+                actor="analyst",
+                action="EVIDENCE_TAGGED",
+                details=f"Updated tags on '{ev.original_filename}': {', '.join(cleaned) if cleaned else 'none'}",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def update_evidence_verification(
+    db: Session,
+    evidence_id: str,
+    verification_status: str,
+    verification_details: str,
+    verified_at: Optional[datetime] = None,
+) -> Optional[EvidenceModel]:
+    """Persist latest comprehensive integrity & signature verification status."""
+    ev = get_evidence(db, evidence_id)
+    if not ev:
+        return None
+    ev.last_verification_status = verification_status
+    ev.last_verification_details = verification_details
+    ev.last_verified_at = verified_at or datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def get_finding(db: Session, finding_id: str) -> Optional[FindingModel]:
+    """Retrieve a single FindingModel by UUID."""
+    return db.query(FindingModel).filter(FindingModel.finding_id == finding_id).first()
+
+
+def list_findings(
+    db: Session,
+    *,
+    severity: Optional[str] = None,
+    confidence: Optional[str] = None,
+    review_status: Optional[str] = None,
+    rule_id: Optional[str] = None,
+    analyzer_name: Optional[str] = None,
+    evidence_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Query findings enriched with parent evidence & case context for the Findings Investigation Center."""
+    q = (
+        db.query(FindingModel, AnalysisRunModel, EvidenceModel, CaseModel)
+        .join(AnalysisRunModel, FindingModel.run_id == AnalysisRunModel.run_id)
+        .join(EvidenceModel, AnalysisRunModel.evidence_id == EvidenceModel.evidence_id)
+        .outerjoin(CaseModel, EvidenceModel.case_id == CaseModel.case_id)
+    )
+
+    if severity:
+        q = q.filter(FindingModel.severity == severity.strip().upper())
+    if confidence:
+        q = q.filter(FindingModel.confidence == confidence.strip().upper())
+    if review_status:
+        q = q.filter(FindingModel.review_status == review_status.strip().upper())
+    if rule_id:
+        q = q.filter(FindingModel.rule_id.ilike(f"%{rule_id.strip()}%"))
+    if analyzer_name:
+        q = q.filter(FindingModel.analyzer_name.ilike(f"%{analyzer_name.strip()}%"))
+    if evidence_id:
+        q = q.filter(EvidenceModel.evidence_id == evidence_id)
+    if case_id:
+        q = q.filter(EvidenceModel.case_id == case_id)
+
+    rows = q.order_by(desc(AnalysisRunModel.analyzed_at)).limit(limit).all()
+    results: List[Dict[str, Any]] = []
+    for f_row, run_row, ev_row, case_row in rows:
+        history = []
+        if f_row.review_history_json:
+            try:
+                history = json.loads(f_row.review_history_json)
+            except Exception:
+                history = []
+        results.append({
+            "finding": f_row,
+            "run": run_row,
+            "evidence": ev_row,
+            "case": case_row,
+            "review_history": history,
+        })
+    return results
+
+
+def update_finding_review(
+    db: Session,
+    finding_id: str,
+    *,
+    review_status: str,
+    is_false_positive: bool = False,
+    analyst_notes: Optional[str] = None,
+    reviewed_by: str = "SOC Analyst",
+) -> Optional[FindingModel]:
+    """Update analyst disposition, review status, false-positive flag, and append audit history."""
+    finding = get_finding(db, finding_id)
+    if not finding:
+        return None
+
+    norm_status = review_status.strip().upper()
+    if norm_status not in ALLOWED_FINDING_STATUSES:
+        raise ValueError(f"Unsupported review status: {review_status}. Allowed: {sorted(ALLOWED_FINDING_STATUSES)}")
+
+    now = datetime.now(timezone.utc)
+    if norm_status == "FALSE_POSITIVE":
+        is_false_positive = True
+
+    history: List[Dict[str, Any]] = []
+    if finding.review_history_json:
+        try:
+            history = json.loads(finding.review_history_json)
+        except Exception:
+            history = []
+
+    history.append({
+        "timestamp": now.isoformat(),
+        "actor": reviewed_by or "SOC Analyst",
+        "previous_status": finding.review_status,
+        "new_status": norm_status,
+        "is_false_positive": bool(is_false_positive),
+        "notes": analyst_notes or "",
+    })
+
+    finding.review_status = norm_status
+    finding.is_false_positive = bool(is_false_positive)
+    finding.analyst_notes = analyst_notes.strip() if isinstance(analyst_notes, str) and analyst_notes.strip() else None
+    finding.reviewed_by = reviewed_by or "SOC Analyst"
+    finding.reviewed_at = now
+    finding.review_history_json = json.dumps(history)
+
+    run_obj = db.query(AnalysisRunModel).filter(AnalysisRunModel.run_id == finding.run_id).first()
+    if run_obj:
+        ev_obj = get_evidence(db, run_obj.evidence_id)
+        if ev_obj and ev_obj.case_id:
+            db.add(
+                CaseActivityModel(
+                    activity_id=str(uuid.uuid4()),
+                    case_id=ev_obj.case_id,
+                    actor=reviewed_by or "SOC Analyst",
+                    action="FINDING_REVIEWED",
+                    details=(
+                        f"Finding {finding.rule_id} on '{ev_obj.original_filename}' reviewed: "
+                        f"{norm_status} (false_positive={bool(is_false_positive)})"
+                    ),
+                    created_at=now,
+                )
+            )
+
+    db.commit()
+    db.refresh(finding)
+    return finding
 

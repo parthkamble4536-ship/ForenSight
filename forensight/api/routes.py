@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from forensight.analyzers import get_analyzer_for_type
@@ -43,13 +44,21 @@ from forensight.database import (
     get_db,
     get_evidence,
     get_latest_analysis_run,
+    list_case_activities,
     list_cases,
     list_custody_events,
     list_evidence,
+    list_findings,
+    list_timeline_events,
     record_analysis_run,
     save_custody_event,
+    update_case_workflow,
+    update_evidence_tags,
+    update_finding_review,
 )
 from forensight.evidence.custody import custody_ledger
+from forensight.evidence.timeline import timeline_aggregator
+from forensight.evidence.verification import verify_evidence_comprehensive
 from forensight.ingestion.pipeline import ingestion_pipeline
 from forensight.intelligence.scoring import risk_engine
 from forensight.reports.generator import report_generator
@@ -268,31 +277,222 @@ def upload_evidence(
 @api_router.post("/evidence/{evidence_id}/verify")
 def verify_integrity(evidence_id: str, db: Session = Depends(get_db)):
     """
-    Perform live multi-factor cryptographic audit comparing recorded hashes against stored file.
+    Perform comprehensive multi-factor cryptographic audit (hashes, size, Ed25519 manifest,
+    and persisted Chain of Custody continuity) and store verification telemetry.
     """
-    ev = get_evidence(db, evidence_id)
+    result = verify_evidence_comprehensive(db, evidence_id, record_custody=True)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return result
+
+
+@api_router.post("/verification/verify-all")
+def verify_all_evidence(db: Session = Depends(get_db)):
+    """Run comprehensive verification across all vaulted evidence artifacts."""
+    items = list_evidence(db, limit=200)
+    results = []
+    for ev in items:
+        res = verify_evidence_comprehensive(db, ev.evidence_id, record_custody=False)
+        if res is not None:
+            results.append(res)
+    custody_valid, custody_err, _ = custody_ledger.verify_persisted_chain(db)
+    return {
+        "total_checked": len(results),
+        "custody_chain_valid": custody_valid,
+        "custody_chain_error": custody_err,
+        "results": results,
+    }
+
+
+# --- Analyst Case Workflow, Evidence Tags & Finding Investigation Endpoints (Phase 3) ---
+
+class CaseWorkflowPatch(BaseModel):
+    status: Optional[str] = Field(default=None, description="OPEN, IN_PROGRESS, UNDER_REVIEW, or CLOSED")
+    investigator: Optional[str] = None
+    investigator_notes: Optional[str] = None
+    case_summary: Optional[str] = None
+    tags: Optional[List[str]] = None
+    closure_notes: Optional[str] = None
+    actor: str = "SOC Analyst"
+
+
+class EvidenceTagsBody(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+
+
+class FindingReviewBody(BaseModel):
+    review_status: str = Field(description="OPEN, CONFIRMED, NEEDS_FOLLOWUP, or FALSE_POSITIVE")
+    is_false_positive: bool = False
+    analyst_notes: Optional[str] = None
+    reviewed_by: str = "SOC Analyst"
+
+
+@api_router.patch("/cases/{case_id}")
+def patch_case_workflow(case_id: str, body: CaseWorkflowPatch, db: Session = Depends(get_db)):
+    """Update case status, notes, tags, summary, and closure attribution."""
+    try:
+        updated = update_case_workflow(
+            db,
+            case_id,
+            status=body.status,
+            investigator=body.investigator,
+            investigator_notes=body.investigator_notes,
+            case_summary=body.case_summary,
+            tags=body.tags,
+            closure_notes=body.closure_notes,
+            actor=body.actor,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return {
+        "case_id": updated.case_id,
+        "status": updated.status,
+        "investigator": updated.investigator,
+        "investigator_notes": updated.investigator_notes,
+        "case_summary": updated.case_summary,
+        "closed_by": updated.closed_by,
+        "closed_at": updated.closed_at.isoformat() if updated.closed_at else None,
+    }
+
+
+@api_router.post("/evidence/{evidence_id}/tags")
+def set_evidence_tags(evidence_id: str, body: EvidenceTagsBody, db: Session = Depends(get_db)):
+    """Update analyst classification tags on an evidence artifact."""
+    ev = update_evidence_tags(db, evidence_id, body.tags)
     if not ev:
         raise HTTPException(status_code=404, detail="Evidence not found")
+    return {"evidence_id": ev.evidence_id, "tags": body.tags}
 
-    expected_hashes = HashResult(
-        sha256=ev.sha256,
-        sha1=ev.sha1,
-        md5=ev.md5,
-        size_bytes=ev.file_size_bytes,
+
+@api_router.get("/findings")
+def query_findings(
+    severity: Optional[str] = None,
+    confidence: Optional[str] = None,
+    review_status: Optional[str] = None,
+    rule_id: Optional[str] = None,
+    analyzer_name: Optional[str] = None,
+    evidence_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Query findings with rule provenance, evidence attribution, and analyst disposition."""
+    rows = list_findings(
+        db,
+        severity=severity,
+        confidence=confidence,
+        review_status=review_status,
+        rule_id=rule_id,
+        analyzer_name=analyzer_name,
+        evidence_id=evidence_id,
+        case_id=case_id,
     )
+    return [
+        {
+            "finding_id": r["finding"].finding_id,
+            "rule_id": r["finding"].rule_id,
+            "rule_version": r["finding"].rule_version,
+            "analyzer_name": r["finding"].analyzer_name,
+            "analyzer_version": r["finding"].analyzer_version,
+            "severity": r["finding"].severity,
+            "confidence": r["finding"].confidence,
+            "title": r["finding"].title,
+            "description": r["finding"].description,
+            "explanation": r["finding"].explanation,
+            "object_reference": r["finding"].object_reference,
+            "offset": r["finding"].offset,
+            "review_status": r["finding"].review_status,
+            "is_false_positive": r["finding"].is_false_positive,
+            "analyst_notes": r["finding"].analyst_notes,
+            "reviewed_by": r["finding"].reviewed_by,
+            "reviewed_at": r["finding"].reviewed_at.isoformat() if r["finding"].reviewed_at else None,
+            "review_history": r["review_history"],
+            "evidence_id": r["evidence"].evidence_id,
+            "evidence_filename": r["evidence"].original_filename,
+            "case_id": r["evidence"].case_id,
+        }
+        for r in rows
+    ]
 
-    audit = evidence_vault.verify_evidence_integrity(evidence_id, expected_hashes)
 
-    # Record audit event in persistent custody ledger
+@api_router.post("/findings/{finding_id}/review")
+def review_finding(finding_id: str, body: FindingReviewBody, db: Session = Depends(get_db)):
+    """Record analyst disposition, false-positive flag, and notes on a finding."""
     try:
-        custody_ledger.record_event(
-            evidence_id=evidence_id,
-            case_id=ev.case_id,
-            event_type="INTEGRITY_AUDIT",
-            details=f"Live cryptographic audit: {'PASSED' if audit.is_valid else 'FAILED'} ({audit.details})",
-            db=db,
+        updated = update_finding_review(
+            db,
+            finding_id,
+            review_status=body.review_status,
+            is_false_positive=body.is_false_positive,
+            analyst_notes=body.analyst_notes,
+            reviewed_by=body.reviewed_by,
         )
-    except IntegrityCompromisedError as integrity_err:
-        raise HTTPException(status_code=500, detail=str(integrity_err))
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return {
+        "finding_id": updated.finding_id,
+        "review_status": updated.review_status,
+        "is_false_positive": updated.is_false_positive,
+        "analyst_notes": updated.analyst_notes,
+        "reviewed_by": updated.reviewed_by,
+        "reviewed_at": updated.reviewed_at.isoformat() if updated.reviewed_at else None,
+    }
 
-    return audit.model_dump()
+
+@api_router.get("/timeline")
+def get_unified_timeline(
+    case_id: Optional[str] = None,
+    evidence_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Retrieve unified multi-source UTC timeline (metadata, ingestion, analysis, custody, case activity)."""
+    if evidence_id:
+        ev = get_evidence(db, evidence_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Evidence not found")
+        t_events = list_timeline_events(db, evidence_id=evidence_id)
+        c_events = list_custody_events(db, evidence_id=evidence_id)
+        unified = timeline_aggregator.build_unified_investigation_timeline(
+            timeline_events=t_events,
+            custody_rows=c_events,
+            evidence_names={ev.evidence_id: ev.original_filename},
+        )
+    elif case_id:
+        case = get_case(db, case_id)
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+        ev_items = list_evidence(db, case_id=case_id)
+        ev_map = {e.evidence_id: e.original_filename for e in ev_items}
+        t_events = []
+        c_events = []
+        for e in ev_items:
+            t_events.extend(list_timeline_events(db, evidence_id=e.evidence_id))
+            c_events.extend(list_custody_events(db, evidence_id=e.evidence_id))
+        activities = list_case_activities(db, case_id=case_id)
+        unified = timeline_aggregator.build_unified_investigation_timeline(
+            timeline_events=t_events,
+            custody_rows=c_events,
+            case_activities=activities,
+            evidence_names=ev_map,
+        )
+    else:
+        ev_items = list_evidence(db, limit=100)
+        ev_map = {e.evidence_id: e.original_filename for e in ev_items}
+        t_events = list_timeline_events(db)
+        c_events = list_custody_events(db)
+        unified = timeline_aggregator.build_unified_investigation_timeline(
+            timeline_events=t_events,
+            custody_rows=c_events,
+            evidence_names=ev_map,
+        )
+
+    return {
+        "disclaimer": timeline_aggregator.METADATA_DISCLAIMER,
+        "events": [
+            {**item, "timestamp": item["timestamp"].isoformat()}
+            for item in unified
+        ],
+    }

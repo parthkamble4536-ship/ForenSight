@@ -99,3 +99,4 @@ However, the audit identified **critical reliability, persistence, security, and
 - **Phase 3 (P1)**: Evidence Verification Center, Findings Investigation Center (review status/disposition/notes), multi-source UTC timeline view, case workflow (`OPEN`/`IN_PROGRESS`/`UNDER_REVIEW`/`CLOSED`, tags, notes), correlation UI improvements.
 - **Phase 4 (P1/P2)**: Dashboard UX polish (safe DOM handling, responsiveness, loading/error states) & full deterministic report enrichment (custody, timeline, versions, manifest verification, optional CSV/STIX 2.1 if scope permits).
 - **Phase 5 (CRITICAL)**: Clean Python 3.13 venv validation on Windows, adversarial & security regression suite, documentation lock, and Kali Linux readiness verification.
+
