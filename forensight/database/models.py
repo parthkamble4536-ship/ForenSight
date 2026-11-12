@@ -130,6 +130,11 @@ class AnalysisRunModel(Base):
         back_populates="analysis_run",
         cascade="all, delete-orphan",
     )
+    timeline_events: Mapped[List["TimelineEventModel"]] = relationship(
+        "TimelineEventModel",
+        back_populates="analysis_run",
+        cascade="all, delete-orphan",
+    )
 
 
 class FindingModel(Base):
@@ -193,4 +198,36 @@ class CustodyEventModel(Base):
     details: Mapped[str] = mapped_column(Text, nullable=False)
     previous_event_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     event_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    sequence_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+
+
+class TimelineEventModel(Base):
+    """Persistent normalized UTC forensic timeline event linked to evidence and analysis runs."""
+
+    __tablename__ = "timeline_events"
+
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("evidence_items.evidence_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("analysis_runs.run_id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    original_timestamp: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    timestamp_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(20), default="HIGH", nullable=False)
+
+    analysis_run: Mapped[Optional["AnalysisRunModel"]] = relationship(
+        "AnalysisRunModel",
+        back_populates="timeline_events",
+    )
 

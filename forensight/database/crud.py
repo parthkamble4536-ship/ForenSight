@@ -12,12 +12,15 @@ from sqlalchemy.orm import Session
 from forensight.core.types import (
     AnalysisResult,
     ChainOfCustodyEvent,
+    ConfidenceLevel,
     EvidenceManifest,
     EvidenceMetadata,
     EvidenceRecord,
     Finding,
     IOCRecord,
     RiskScore,
+    TimelineEvent,
+    TimelineEventType,
 )
 from forensight.database.models import (
     AnalysisRunModel,
@@ -26,6 +29,7 @@ from forensight.database.models import (
     EvidenceModel,
     FindingModel,
     IOCModel,
+    TimelineEventModel,
 )
 
 
@@ -119,8 +123,9 @@ def record_analysis_run(
     findings: List[Finding],
     iocs: List[IOCRecord],
     details: Dict[str, Any],
+    timeline_events: Optional[List[TimelineEvent]] = None,
 ) -> AnalysisRunModel:
-    """Record an immutable static analysis run with findings and IOCs."""
+    """Record an immutable static analysis run with findings, IOCs, and timeline events."""
     run_id = str(uuid.uuid4())
     run = AnalysisRunModel(
         run_id=run_id,
@@ -162,6 +167,24 @@ def record_analysis_run(
         )
         db.add(ioc_model)
 
+    if timeline_events:
+        for tev in timeline_events:
+            norm_ts = tev.timestamp if tev.timestamp.tzinfo else tev.timestamp.replace(tzinfo=timezone.utc)
+            norm_ts = norm_ts.astimezone(timezone.utc)
+            orig_ts = tev.original_timestamp if tev.original_timestamp is not None else tev.timestamp.isoformat()
+            t_model = TimelineEventModel(
+                event_id=str(uuid.uuid4()),
+                evidence_id=evidence_id,
+                run_id=run_id,
+                timestamp=norm_ts,
+                original_timestamp=orig_ts[:100],
+                timestamp_type=tev.timestamp_type.value,
+                source=tev.source[:255],
+                description=tev.description,
+                confidence=tev.confidence.value,
+            )
+            db.add(t_model)
+
     db.commit()
     db.refresh(run)
     return run
@@ -177,20 +200,99 @@ def get_latest_analysis_run(db: Session, evidence_id: str) -> Optional[AnalysisR
     )
 
 
+# --- Timeline Persistence Operations ---
+
+def save_timeline_events(
+    db: Session,
+    evidence_id: str,
+    timeline_events: List[TimelineEvent],
+    run_id: Optional[str] = None,
+) -> List[TimelineEventModel]:
+    """Persist normalized UTC timeline events for an evidence artifact."""
+    created: List[TimelineEventModel] = []
+    for tev in timeline_events:
+        norm_ts = tev.timestamp if tev.timestamp.tzinfo else tev.timestamp.replace(tzinfo=timezone.utc)
+        norm_ts = norm_ts.astimezone(timezone.utc)
+        orig_ts = tev.original_timestamp if tev.original_timestamp is not None else tev.timestamp.isoformat()
+        model = TimelineEventModel(
+            event_id=str(uuid.uuid4()),
+            evidence_id=evidence_id,
+            run_id=run_id,
+            timestamp=norm_ts,
+            original_timestamp=orig_ts[:100],
+            timestamp_type=tev.timestamp_type.value,
+            source=tev.source[:255],
+            description=tev.description,
+            confidence=tev.confidence.value,
+        )
+        db.add(model)
+        created.append(model)
+    if created:
+        db.commit()
+        for m in created:
+            db.refresh(m)
+    return created
+
+
+def list_timeline_events(
+    db: Session,
+    evidence_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> List[TimelineEvent]:
+    """Retrieve persisted timeline events ordered chronologically in UTC."""
+    q = db.query(TimelineEventModel)
+    if evidence_id:
+        q = q.filter(TimelineEventModel.evidence_id == evidence_id)
+    if run_id:
+        q = q.filter(TimelineEventModel.run_id == run_id)
+    rows = q.order_by(TimelineEventModel.timestamp).all()
+
+    events: List[TimelineEvent] = []
+    for row in rows:
+        ts = row.timestamp if row.timestamp.tzinfo else row.timestamp.replace(tzinfo=timezone.utc)
+        ts = ts.astimezone(timezone.utc)
+        events.append(
+            TimelineEvent(
+                event_id=row.event_id,
+                evidence_id=row.evidence_id,
+                timestamp=ts,
+                original_timestamp=row.original_timestamp,
+                timestamp_type=TimelineEventType(row.timestamp_type),
+                source=row.source,
+                description=row.description,
+                confidence=ConfidenceLevel(row.confidence),
+            )
+        )
+    return events
+
+
 # --- Chain of Custody Operations ---
 
-def save_custody_event(db: Session, event: ChainOfCustodyEvent) -> CustodyEventModel:
+def save_custody_event(
+    db: Session,
+    event: ChainOfCustodyEvent,
+    sequence_index: Optional[int] = None,
+) -> CustodyEventModel:
     """Persist a chain of custody audit event."""
+    if sequence_index is None:
+        max_seq = db.query(func.max(CustodyEventModel.sequence_index)).scalar()
+        total = db.query(func.count(CustodyEventModel.event_id)).scalar() or 0
+        sequence_index = (max_seq + 1) if (max_seq is not None and total > 0) else 0
+
+    norm_ts = event.timestamp if event.timestamp.tzinfo else event.timestamp.replace(tzinfo=timezone.utc)
+    norm_ts = norm_ts.astimezone(timezone.utc)
+
     model = CustodyEventModel(
         event_id=event.event_id,
         evidence_id=event.evidence_id,
         case_id=event.case_id,
         event_type=event.event_type,
         actor=event.actor,
-        timestamp=event.timestamp,
+        timestamp=norm_ts,
         details=event.details,
         previous_event_hash=event.previous_event_hash or "",
         event_hash=event.event_hash,
+        sequence_index=sequence_index,
     )
     db.add(model)
     db.commit()
@@ -199,11 +301,11 @@ def save_custody_event(db: Session, event: ChainOfCustodyEvent) -> CustodyEventM
 
 
 def list_custody_events(db: Session, evidence_id: Optional[str] = None) -> List[CustodyEventModel]:
-    """List custody audit events ordered chronologically."""
+    """List custody audit events ordered chronologically and deterministically."""
     q = db.query(CustodyEventModel)
     if evidence_id:
         q = q.filter(CustodyEventModel.evidence_id == evidence_id)
-    return q.order_by(CustodyEventModel.timestamp).all()
+    return q.order_by(CustodyEventModel.sequence_index, CustodyEventModel.timestamp).all()
 
 
 # --- Dashboard Aggregations ---

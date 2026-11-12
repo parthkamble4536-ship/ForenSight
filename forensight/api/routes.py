@@ -2,6 +2,8 @@
 RESTful API endpoints for ForenSight programmatic triage and automation.
 """
 
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -14,6 +16,7 @@ from forensight.core.exceptions import (
     DuplicateEvidenceError,
     EvidenceNotFoundError,
     FileSizeExceededError,
+    IntegrityCompromisedError,
 )
 from forensight.core.types import (
     AnalysisResult,
@@ -27,6 +30,8 @@ from forensight.core.types import (
     IOCRecord,
     IOCType,
     RiskScore,
+    TimelineEvent,
+    TimelineEventType,
 )
 from forensight.crypto.keys import key_manager
 from forensight.crypto.signing import sign_manifest
@@ -121,12 +126,13 @@ def upload_evidence(
     filename = file.filename or "uploaded_artifact.bin"
 
     try:
-        # Ingest stream into vault
+        # Ingest stream into vault with authoritative SQLite duplicate detection
         ingest_result = ingestion_pipeline.ingest_stream(
             stream=file.file,
             original_filename=filename,
             case_id=clean_case_id,
             allow_duplicates=False,
+            db=db,
         )
     except DuplicateEvidenceError as dup:
         raise HTTPException(
@@ -141,26 +147,33 @@ def upload_evidence(
     except Exception as err:
         raise HTTPException(status_code=400, detail=f"Ingestion failed: {err}")
 
-    # Digitally sign the evidence manifest using Ed25519
-    priv_key, pub_key = key_manager.load_or_create_keypair()
-    signed_manifest = sign_manifest(ingest_result.manifest, priv_key)
+    sha256 = ingest_result.evidence.hashes.sha256
+    try:
+        # Digitally sign the evidence manifest using Ed25519
+        priv_key, pub_key = key_manager.load_or_create_keypair()
+        signed_manifest = sign_manifest(ingest_result.manifest, priv_key)
 
-    # Persist evidence record
-    evidence_model = create_evidence(
-        db,
-        evidence=ingest_result.evidence,
-        metadata=ingest_result.metadata,
-        manifest=signed_manifest,
-    )
+        # Persist evidence record
+        evidence_model = create_evidence(
+            db,
+            evidence=ingest_result.evidence,
+            metadata=ingest_result.metadata,
+            manifest=signed_manifest,
+        )
+    finally:
+        ingestion_pipeline.release_inflight_hash(db, sha256)
 
-    # Record custody acquisition event
-    custody_event = custody_ledger.record_event(
-        evidence_id=ingest_result.evidence.evidence_id,
-        case_id=case_id,
-        event_type="ACQUISITION",
-        details=f"Acquired untrusted artifact '{filename}' (SHA-256: {ingest_result.evidence.hashes.sha256})",
-    )
-    save_custody_event(db, custody_event)
+    # Record persistent hash-chained custody acquisition event
+    try:
+        custody_ledger.record_event(
+            evidence_id=ingest_result.evidence.evidence_id,
+            case_id=clean_case_id,
+            event_type="ACQUISITION",
+            details=f"Acquired untrusted artifact '{filename}' (SHA-256: {sha256})",
+            db=db,
+        )
+    except IntegrityCompromisedError as integrity_err:
+        raise HTTPException(status_code=500, detail=str(integrity_err))
 
     # Execute designated static analyzer
     stored_path = Path(ingest_result.evidence.storage_path)
@@ -175,24 +188,66 @@ def upload_evidence(
     # Calculate explainable risk score
     risk = risk_engine.calculate_risk(analysis_output.findings)
 
-    # Persist analysis run
+    # Assemble complete UTC timeline events for persistence
+    ev_id = ingest_result.evidence.evidence_id
+    persisted_timeline: List[TimelineEvent] = []
+    for tev in analysis_output.timeline_events:
+        persisted_timeline.append(
+            tev.model_copy(
+                update={
+                    "evidence_id": ev_id,
+                    "original_timestamp": tev.original_timestamp or tev.timestamp.isoformat(),
+                }
+            )
+        )
+    persisted_timeline.append(
+        TimelineEvent(
+            event_id=str(uuid.uuid4()),
+            evidence_id=ev_id,
+            timestamp=ingest_result.evidence.stored_at,
+            original_timestamp=ingest_result.evidence.stored_at.isoformat(),
+            timestamp_type=TimelineEventType.INGESTION,
+            source="Evidence Vault Acquisition",
+            description=f"Artifact '{filename}' ingested and hashed (SHA-256: {sha256[:16]}...)",
+            confidence=ConfidenceLevel.CONFIRMED,
+        )
+    )
+    analysis_ts = datetime.now(timezone.utc)
+    persisted_timeline.append(
+        TimelineEvent(
+            event_id=str(uuid.uuid4()),
+            evidence_id=ev_id,
+            timestamp=analysis_ts,
+            original_timestamp=analysis_ts.isoformat(),
+            timestamp_type=TimelineEventType.ANALYSIS,
+            source=analyzer.name if analyzer else "Static Triage Pipeline",
+            description=f"Static analysis completed: Verdict={risk.verdict} ({risk.score}/100)",
+            confidence=ConfidenceLevel.CONFIRMED,
+        )
+    )
+
+    # Persist analysis run and timeline events
     record_analysis_run(
         db,
-        evidence_id=ingest_result.evidence.evidence_id,
+        evidence_id=ev_id,
         risk=risk,
         findings=analysis_output.findings,
         iocs=analysis_output.iocs,
         details=analysis_output.details,
+        timeline_events=persisted_timeline,
     )
 
-    # Record analysis event in custody ledger
-    analysis_custody = custody_ledger.record_event(
-        evidence_id=ingest_result.evidence.evidence_id,
-        case_id=case_id,
-        event_type="ANALYSIS_RUN",
-        details=f"Static analysis executed by '{analyzer.name if analyzer else 'None'}': Verdict={risk.verdict} ({risk.score}/100)",
-    )
-    save_custody_event(db, analysis_custody)
+    # Record analysis event in persistent custody ledger
+    try:
+        custody_ledger.record_event(
+            evidence_id=ev_id,
+            case_id=clean_case_id,
+            event_type="ANALYSIS_RUN",
+            details=f"Static analysis executed by '{analyzer.name if analyzer else 'None'}': Verdict={risk.verdict} ({risk.score}/100)",
+            db=db,
+        )
+    except IntegrityCompromisedError as integrity_err:
+        raise HTTPException(status_code=500, detail=str(integrity_err))
 
     return {
         "evidence_id": ingest_result.evidence.evidence_id,
@@ -224,13 +279,16 @@ def verify_integrity(evidence_id: str, db: Session = Depends(get_db)):
 
     audit = evidence_vault.verify_evidence_integrity(evidence_id, expected_hashes)
 
-    # Record audit event in custody ledger
-    custody_ev = custody_ledger.record_event(
-        evidence_id=evidence_id,
-        case_id=ev.case_id,
-        event_type="INTEGRITY_AUDIT",
-        details=f"Live cryptographic audit: {'PASSED' if audit.is_valid else 'FAILED'} ({audit.details})",
-    )
-    save_custody_event(db, custody_ev)
+    # Record audit event in persistent custody ledger
+    try:
+        custody_ledger.record_event(
+            evidence_id=evidence_id,
+            case_id=ev.case_id,
+            event_type="INTEGRITY_AUDIT",
+            details=f"Live cryptographic audit: {'PASSED' if audit.is_valid else 'FAILED'} ({audit.details})",
+            db=db,
+        )
+    except IntegrityCompromisedError as integrity_err:
+        raise HTTPException(status_code=500, detail=str(integrity_err))
 
     return audit.model_dump()

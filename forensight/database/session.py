@@ -6,7 +6,7 @@ Configures SQLite with Write-Ahead Logging (WAL) and foreign key constraints.
 
 from pathlib import Path
 from typing import Generator
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from forensight.core.config import settings
@@ -36,8 +36,16 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db() -> None:
-    """Create all database tables if they do not exist."""
+    """Create all database tables and apply safe additive schema migrations if needed."""
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if inspector.has_table("custody_events"):
+        cols = {col["name"] for col in inspector.get_columns("custody_events")}
+        if "sequence_index" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE custody_events ADD COLUMN sequence_index INTEGER NOT NULL DEFAULT 0")
+                )
 
 
 def get_db() -> Generator[Session, None, None]:

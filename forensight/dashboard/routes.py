@@ -3,8 +3,10 @@ Dashboard web presentation routes for ForenSight (FastAPI + Jinja2).
 """
 
 import json
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -12,9 +14,14 @@ from sqlalchemy.orm import Session
 
 from forensight.analyzers import get_analyzer_for_type
 from forensight.core.config import settings
-from forensight.core.exceptions import DuplicateEvidenceError, FileSizeExceededError
+from forensight.core.exceptions import (
+    DuplicateEvidenceError,
+    FileSizeExceededError,
+    IntegrityCompromisedError,
+)
 from forensight.core.types import (
     AnalysisResult,
+    ConfidenceLevel,
     EvidenceManifest,
     EvidenceMetadata,
     EvidenceRecord,
@@ -24,6 +31,8 @@ from forensight.core.types import (
     IOCRecord,
     IOCType,
     RiskScore,
+    TimelineEvent,
+    TimelineEventType,
 )
 from forensight.crypto.keys import key_manager
 from forensight.crypto.signing import sign_manifest
@@ -38,6 +47,7 @@ from forensight.database import (
     list_cases,
     list_custody_events,
     list_evidence,
+    list_timeline_events,
     record_analysis_run,
     save_custody_event,
 )
@@ -86,13 +96,14 @@ def handle_dashboard_upload(
     clean_case_id = case_id.strip() if isinstance(case_id, str) and case_id.strip() else None
     filename = file.filename or "uploaded_artifact.bin"
 
-    # Ingest file into storage vault
+    # Ingest file into storage vault with SQLite authoritative duplicate detection
     try:
         ingest_result = ingestion_pipeline.ingest_stream(
             stream=file.file,
             original_filename=filename,
             case_id=clean_case_id,
             allow_duplicates=False,
+            db=db,
         )
     except DuplicateEvidenceError as dup:
         existing_id = getattr(dup, "existing_evidence_id", None)
@@ -102,26 +113,33 @@ def handle_dashboard_upload(
     except FileSizeExceededError as size_err:
         raise HTTPException(status_code=413, detail=str(size_err))
 
-    # Sign manifest
-    priv_key, pub_key = key_manager.load_or_create_keypair()
-    signed_manifest = sign_manifest(ingest_result.manifest, priv_key)
+    sha256 = ingest_result.evidence.hashes.sha256
+    try:
+        # Sign manifest
+        priv_key, pub_key = key_manager.load_or_create_keypair()
+        signed_manifest = sign_manifest(ingest_result.manifest, priv_key)
 
-    # Persist evidence
-    create_evidence(
-        db,
-        evidence=ingest_result.evidence,
-        metadata=ingest_result.metadata,
-        manifest=signed_manifest,
-    )
+        # Persist evidence
+        create_evidence(
+            db,
+            evidence=ingest_result.evidence,
+            metadata=ingest_result.metadata,
+            manifest=signed_manifest,
+        )
+    finally:
+        ingestion_pipeline.release_inflight_hash(db, sha256)
 
-    # Custody log
-    custody_ev = custody_ledger.record_event(
-        evidence_id=ingest_result.evidence.evidence_id,
-        case_id=clean_case_id,
-        event_type="ACQUISITION",
-        details=f"Acquired artifact '{filename}' (SHA-256: {ingest_result.evidence.hashes.sha256})",
-    )
-    save_custody_event(db, custody_ev)
+    # Persistent custody log
+    try:
+        custody_ledger.record_event(
+            evidence_id=ingest_result.evidence.evidence_id,
+            case_id=clean_case_id,
+            event_type="ACQUISITION",
+            details=f"Acquired artifact '{filename}' (SHA-256: {sha256})",
+            db=db,
+        )
+    except IntegrityCompromisedError as integrity_err:
+        raise HTTPException(status_code=500, detail=str(integrity_err))
 
     # Execute analyzer
     stored_path = Path(ingest_result.evidence.storage_path)
@@ -135,23 +153,65 @@ def handle_dashboard_upload(
 
     risk = risk_engine.calculate_risk(output.findings)
 
-    # Persist analysis
+    # Assemble normalized UTC timeline events for SQLite persistence
+    ev_id = ingest_result.evidence.evidence_id
+    persisted_timeline: List[TimelineEvent] = []
+    for tev in output.timeline_events:
+        persisted_timeline.append(
+            tev.model_copy(
+                update={
+                    "evidence_id": ev_id,
+                    "original_timestamp": tev.original_timestamp or tev.timestamp.isoformat(),
+                }
+            )
+        )
+    persisted_timeline.append(
+        TimelineEvent(
+            event_id=str(uuid.uuid4()),
+            evidence_id=ev_id,
+            timestamp=ingest_result.evidence.stored_at,
+            original_timestamp=ingest_result.evidence.stored_at.isoformat(),
+            timestamp_type=TimelineEventType.INGESTION,
+            source="Evidence Vault Acquisition",
+            description=f"Artifact '{filename}' ingested and hashed (SHA-256: {sha256[:16]}...)",
+            confidence=ConfidenceLevel.CONFIRMED,
+        )
+    )
+    analysis_ts = datetime.now(timezone.utc)
+    persisted_timeline.append(
+        TimelineEvent(
+            event_id=str(uuid.uuid4()),
+            evidence_id=ev_id,
+            timestamp=analysis_ts,
+            original_timestamp=analysis_ts.isoformat(),
+            timestamp_type=TimelineEventType.ANALYSIS,
+            source=analyzer.name if analyzer else "Static Triage Pipeline",
+            description=f"Static analysis completed: Verdict={risk.verdict} ({risk.score}/100)",
+            confidence=ConfidenceLevel.CONFIRMED,
+        )
+    )
+
+    # Persist analysis run and timeline events
     record_analysis_run(
         db,
-        evidence_id=ingest_result.evidence.evidence_id,
+        evidence_id=ev_id,
         risk=risk,
         findings=output.findings,
         iocs=output.iocs,
         details=output.details,
+        timeline_events=persisted_timeline,
     )
 
-    analysis_custody = custody_ledger.record_event(
-        evidence_id=ingest_result.evidence.evidence_id,
-        case_id=clean_case_id,
-        event_type="ANALYSIS_RUN",
-        details=f"Analysis completed: Verdict={risk.verdict} ({risk.score}/100)",
-    )
-    save_custody_event(db, analysis_custody)
+    try:
+        custody_ledger.record_event(
+            evidence_id=ev_id,
+            case_id=clean_case_id,
+            event_type="ANALYSIS_RUN",
+            details=f"Analysis completed: Verdict={risk.verdict} ({risk.score}/100)",
+            db=db,
+        )
+    except IntegrityCompromisedError as integrity_err:
+        raise HTTPException(status_code=500, detail=str(integrity_err))
 
     return RedirectResponse(
         url=f"/evidence/{ingest_result.evidence.evidence_id}",
@@ -300,21 +360,8 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
             sev = (finding.severity or "INFO").upper()
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-    # Reconstruct timeline events if analyzer run exists
-    timeline_events = []
-    if ev.identified_type:
-        analyzer = get_analyzer_for_type(ev.identified_type)
-        if analyzer and Path(ev.storage_path).exists():
-            meta = EvidenceMetadata(
-                file_size_bytes=ev.file_size_bytes,
-                identified_type=ev.identified_type,
-                mime_type=ev.mime_type,
-                declared_extension=ev.declared_extension,
-                is_extension_mismatch=ev.is_extension_mismatch,
-                entropy=ev.entropy,
-            )
-            out = analyzer.analyze(Path(ev.storage_path), meta)
-            timeline_events = out.timeline_events
+    # Load persisted normalized timeline events from SQLite (never re-run analyzer on GET)
+    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
 
     return templates.TemplateResponse(
         request=request,
@@ -335,7 +382,11 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
 
 # --- Report Export Endpoints ---
 
-def _build_analysis_result(ev, run) -> AnalysisResult:
+def _build_analysis_result(
+    ev,
+    run,
+    timeline_events: Optional[List[TimelineEvent]] = None,
+) -> AnalysisResult:
     """Helper to reconstruct full AnalysisResult from ORM models."""
     findings = [
         Finding(
@@ -392,6 +443,7 @@ def _build_analysis_result(ev, run) -> AnalysisResult:
         ),
         findings=findings,
         iocs=iocs,
+        timeline=timeline_events or [],
         analyzer_details=raw_details,
     )
 
@@ -404,7 +456,8 @@ def export_html(evidence_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     run = get_latest_analysis_run(db, evidence_id)
-    result = _build_analysis_result(ev, run)
+    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
+    result = _build_analysis_result(ev, run, timeline_events=timeline_events)
 
     manifest = EvidenceManifest(
         manifest_id=str(ev.evidence_id),
@@ -430,7 +483,8 @@ def export_json(evidence_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     run = get_latest_analysis_run(db, evidence_id)
-    result = _build_analysis_result(ev, run)
+    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
+    result = _build_analysis_result(ev, run, timeline_events=timeline_events)
 
     manifest = EvidenceManifest(
         manifest_id=str(ev.evidence_id),
@@ -456,7 +510,8 @@ def export_pdf(evidence_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     run = get_latest_analysis_run(db, evidence_id)
-    result = _build_analysis_result(ev, run)
+    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
+    result = _build_analysis_result(ev, run, timeline_events=timeline_events)
 
     manifest = EvidenceManifest(
         manifest_id=str(ev.evidence_id),

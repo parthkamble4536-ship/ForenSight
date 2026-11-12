@@ -5,10 +5,12 @@ Exports comprehensive investigation reports in Standalone HTML, structured JSON,
 and digitally signed PDF formats.
 """
 
+import html
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -56,8 +58,11 @@ class ReportGenerator:
     ) -> str:
         """
         Produce a self-contained, air-gapped standalone HTML forensic report
-        with embedded dark-theme CSS and zero external network calls.
+        with embedded dark-theme CSS, strict HTML escaping, and zero external network calls.
         """
+        def esc(val: Any) -> str:
+            return html.escape("" if val is None else str(val), quote=True)
+
         ev = result.evidence
         meta = result.metadata
         risk = result.risk
@@ -72,10 +77,10 @@ class ReportGenerator:
             )
             findings_rows += f"""
             <tr style="border-bottom: 1px solid #1e293b;">
-                <td style="padding: 10px; font-weight: 600; color: #f8fafc;">{f.rule_id}</td>
-                <td style="padding: 10px;"><span style="background: {badge_color}22; color: {badge_color}; border: 1px solid {badge_color}55; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">{f.severity.value}</span></td>
-                <td style="padding: 10px; font-weight: 600; color: #f8fafc;">{f.title}<div style="font-size: 12px; color: #94a3b8; font-weight: normal; margin-top: 4px;">{f.description}</div></td>
-                <td style="padding: 10px; font-size: 12px; color: #cbd5e1;">{f.explanation or 'N/A'}</td>
+                <td style="padding: 10px; font-weight: 600; color: #f8fafc;">{esc(f.rule_id)}</td>
+                <td style="padding: 10px;"><span style="background: {badge_color}22; color: {badge_color}; border: 1px solid {badge_color}55; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">{esc(f.severity.value)}</span></td>
+                <td style="padding: 10px; font-weight: 600; color: #f8fafc;">{esc(f.title)}<div style="font-size: 12px; color: #94a3b8; font-weight: normal; margin-top: 4px;">{esc(f.description)}</div></td>
+                <td style="padding: 10px; font-size: 12px; color: #cbd5e1;">{esc(f.explanation or 'N/A')}</td>
             </tr>
             """
 
@@ -83,9 +88,9 @@ class ReportGenerator:
         for ioc in result.iocs[:50]:
             ioc_rows += f"""
             <tr style="border-bottom: 1px solid #1e293b;">
-                <td style="padding: 8px; font-size: 11px; font-weight: 700; color: #38bdf8;">{ioc.ioc_type.value}</td>
-                <td style="padding: 8px; font-family: monospace; font-size: 12px; color: #f8fafc;">{ioc.defanged_value}</td>
-                <td style="padding: 8px; font-size: 11px; color: #94a3b8;">{ioc.context or 'Artifact String'}</td>
+                <td style="padding: 8px; font-size: 11px; font-weight: 700; color: #38bdf8;">{esc(ioc.ioc_type.value)}</td>
+                <td style="padding: 8px; font-family: monospace; font-size: 12px; color: #f8fafc;">{esc(ioc.defanged_value)}</td>
+                <td style="padding: 8px; font-size: 11px; color: #94a3b8;">{esc(ioc.context or 'Artifact String')}</td>
             </tr>
             """
 
@@ -93,11 +98,11 @@ class ReportGenerator:
         if manifest:
             manifest_block = f"""
             <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-top: 24px;">
-                <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;">Cryptographic Manifest & Digital Signature</h3>
+                <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;">Cryptographic Manifest &amp; Digital Signature</h3>
                 <div style="display: grid; grid-template-columns: 140px 1fr; gap: 8px; font-size: 12px; font-family: monospace;">
-                    <div style="color: #94a3b8;">Manifest UUID:</div><div style="color: #f8fafc;">{manifest.manifest_id}</div>
-                    <div style="color: #94a3b8;">Key Fingerprint:</div><div style="color: #f8fafc;">{manifest.public_key_fingerprint or 'Unsigned (Local Demo Mode)'}</div>
-                    <div style="color: #94a3b8;">Ed25519 Signature:</div><div style="color: #34d399; word-break: break-all;">{manifest.signature or 'None'}</div>
+                    <div style="color: #94a3b8;">Manifest UUID:</div><div style="color: #f8fafc;">{esc(manifest.manifest_id)}</div>
+                    <div style="color: #94a3b8;">Key Fingerprint:</div><div style="color: #f8fafc;">{esc(manifest.public_key_fingerprint or 'Unsigned (Local Demo Mode)')}</div>
+                    <div style="color: #94a3b8;">Ed25519 Signature:</div><div style="color: #34d399; word-break: break-all;">{esc(manifest.signature or 'None')}</div>
                 </div>
             </div>
             """
@@ -106,7 +111,7 @@ class ReportGenerator:
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ForenSight Forensic Report — {ev.sanitized_filename}</title>
+    <title>ForenSight Forensic Report — {esc(ev.sanitized_filename)}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #020617; color: #f8fafc; margin: 0; padding: 32px; }}
         .container {{ max-width: 1000px; margin: 0 auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 32px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); }}
@@ -127,40 +132,40 @@ class ReportGenerator:
             <div>
                 <div style="font-size: 12px; font-weight: 800; color: #38bdf8; letter-spacing: 0.1em; text-transform: uppercase;">ForenSight Digital Forensics Platform</div>
                 <h1 style="font-size: 24px; margin-top: 4px; margin-bottom: 4px;">Forensic Triage Report</h1>
-                <div style="color: #94a3b8; font-size: 13px;">Evidence: <strong>{ev.original_filename}</strong></div>
+                <div style="color: #94a3b8; font-size: 13px;">Evidence: <strong>{esc(ev.original_filename)}</strong></div>
             </div>
             <div style="text-align: right;">
                 <div style="font-size: 32px; font-weight: 800; color: {verdict_color};">{risk.score}/100</div>
-                <div style="font-size: 12px; font-weight: 700; color: {verdict_color}; letter-spacing: 0.05em;">{risk.verdict}</div>
+                <div style="font-size: 12px; font-weight: 700; color: {verdict_color}; letter-spacing: 0.05em;">{esc(risk.verdict)}</div>
             </div>
         </div>
 
         <div class="meta-grid">
             <div class="meta-card">
                 <div class="label">SHA-256 Digest</div>
-                <div class="val">{ev.hashes.sha256}</div>
+                <div class="val">{esc(ev.hashes.sha256)}</div>
             </div>
             <div class="meta-card">
                 <div class="label">SHA-1 / MD5</div>
-                <div class="val">{ev.hashes.sha1}<br>{ev.hashes.md5}</div>
+                <div class="val">{esc(ev.hashes.sha1)}<br>{esc(ev.hashes.md5)}</div>
             </div>
             <div class="meta-card">
-                <div class="label">Identification & MIME</div>
-                <div class="val">{meta.identified_type} ({meta.mime_type}) {'<span style="color:#ef4444; font-weight:bold;">[EXTENSION MASQUERADE]</span>' if meta.is_extension_mismatch else ''}</div>
+                <div class="label">Identification &amp; MIME</div>
+                <div class="val">{esc(meta.identified_type)} ({esc(meta.mime_type)}) {'<span style="color:#ef4444; font-weight:bold;">[EXTENSION MASQUERADE]</span>' if meta.is_extension_mismatch else ''}</div>
             </div>
             <div class="meta-card">
-                <div class="label">Size & Shannon Entropy</div>
+                <div class="label">Size &amp; Shannon Entropy</div>
                 <div class="val">{ev.hashes.size_bytes:,} bytes | Entropy: {meta.entropy:.2f}/8.0</div>
             </div>
         </div>
 
-        <h2 style="font-size: 16px; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-top: 32px;">Forensic Findings & Anomaly Indicators ({len(result.findings)})</h2>
+        <h2 style="font-size: 16px; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-top: 32px;">Forensic Findings &amp; Anomaly Indicators ({len(result.findings)})</h2>
         <table>
             <thead>
                 <tr>
                     <th style="width: 130px;">Rule ID</th>
                     <th style="width: 90px;">Severity</th>
-                    <th>Indicator & Description</th>
+                    <th>Indicator &amp; Description</th>
                     <th>Forensic Context</th>
                 </tr>
             </thead>
@@ -238,7 +243,7 @@ class ReportGenerator:
 
         # Title Block
         elements.append(Paragraph("<b>ForenSight — Digital Forensics Triage Report</b>", title_style))
-        elements.append(Paragraph(f"Evidence Artifact: <b>{result.evidence.original_filename}</b>", normal_style))
+        elements.append(Paragraph(f"Evidence Artifact: <b>{xml_escape(result.evidence.original_filename)}</b>", normal_style))
         elements.append(Paragraph(f"Triage Timestamp: {result.analyzed_at.strftime('%Y-%m-%d %H:%M:%S UTC')}", normal_style))
         elements.append(Spacer(1, 10))
         elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#334155")))
@@ -248,9 +253,9 @@ class ReportGenerator:
         verdict_color = colors.HexColor("#10b981") if result.risk.score < 20 else (
             colors.HexColor("#f59e0b") if result.risk.score < 70 else colors.HexColor("#ef4444")
         )
-        risk_text = f"<b>Risk Assessment:</b> <font color='{verdict_color.hexval()}'><b>{result.risk.score}/100 — {result.risk.verdict}</b></font>"
+        risk_text = f"<b>Risk Assessment:</b> <font color='{verdict_color.hexval()}'><b>{result.risk.score}/100 — {xml_escape(result.risk.verdict)}</b></font>"
         elements.append(Paragraph(risk_text, styles["Heading3"]))
-        elements.append(Paragraph(result.risk.summary, normal_style))
+        elements.append(Paragraph(xml_escape(result.risk.summary), normal_style))
         elements.append(Spacer(1, 12))
 
         # Metadata Table
@@ -285,7 +290,7 @@ class ReportGenerator:
                 findings_data.append([
                     f.rule_id,
                     f.severity.value,
-                    Paragraph(f"<b>{f.title}</b><br/>{f.description[:120]}...", normal_style),
+                    Paragraph(f"<b>{xml_escape(f.title)}</b><br/>{xml_escape(f.description[:120])}...", normal_style),
                     f.mitre_technique or "—",
                 ])
             findings_table = Table(findings_data, colWidths=[80, 50, 340, 70])

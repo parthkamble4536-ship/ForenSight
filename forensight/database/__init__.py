@@ -13,8 +13,10 @@ from forensight.database.crud import (
     list_cases,
     list_custody_events,
     list_evidence,
+    list_timeline_events,
     record_analysis_run,
     save_custody_event,
+    save_timeline_events,
 )
 from forensight.database.models import (
     AnalysisRunModel,
@@ -24,6 +26,7 @@ from forensight.database.models import (
     EvidenceModel,
     FindingModel,
     IOCModel,
+    TimelineEventModel,
 )
 from forensight.database.session import SessionLocal, engine, get_db, init_db
 
@@ -35,6 +38,7 @@ __all__ = [
     "FindingModel",
     "IOCModel",
     "CustodyEventModel",
+    "TimelineEventModel",
     "engine",
     "SessionLocal",
     "init_db",
@@ -50,6 +54,8 @@ __all__ = [
     "get_latest_analysis_run",
     "save_custody_event",
     "list_custody_events",
+    "save_timeline_events",
+    "list_timeline_events",
     "get_dashboard_summary",
 ]
 

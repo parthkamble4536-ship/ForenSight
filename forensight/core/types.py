@@ -212,7 +212,11 @@ class TimelineEvent(BaseModel):
 
     event_id: str = Field(description="Unique timeline event UUID")
     evidence_id: str = Field(description="Source evidence UUID")
-    timestamp: datetime = Field(description="Recorded timestamp")
+    timestamp: datetime = Field(description="Normalized UTC timestamp")
+    original_timestamp: Optional[str] = Field(
+        default=None,
+        description="Original unparsed timestamp string preserved from artifact metadata if available",
+    )
     timestamp_type: TimelineEventType = Field(description="Source classification of timestamp")
     source: str = Field(description="Source field or structure (e.g. PE Header, EXIF DateTimeOriginal, Ingest)")
     description: str = Field(description="Human-readable description of event")

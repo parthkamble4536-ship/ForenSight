@@ -13,18 +13,29 @@ from forensight.api.routes import api_router
 from forensight.core.config import settings
 from forensight.crypto.keys import key_manager
 from forensight.dashboard.routes import dashboard_router
-from forensight.database.session import init_db
+from forensight.database.session import SessionLocal, init_db
+from forensight.evidence.custody import custody_ledger
+from forensight.ingestion.pipeline import ingestion_pipeline
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Application startup and shutdown lifespan handler.
-    Initializes storage directories, SQLite database, and cryptographic keypair.
+    Initializes storage directories, SQLite database, cryptographic keypair,
+    persistent duplicate hash registry, and chain-of-custody verification.
     """
     settings.ensure_directories()
     init_db()
     key_manager.load_or_create_keypair()
+    db = SessionLocal()
+    try:
+        ingestion_pipeline.rehydrate_from_db(db)
+        is_valid, _, events = custody_ledger.verify_persisted_chain(db)
+        if is_valid:
+            custody_ledger._events = events
+    finally:
+        db.close()
     yield
 
 
