@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # Job 1: Full Test Suite & Security Audit
+  # Job 1: Full Test Suite across Python 3.11, 3.12, 3.13
   # ─────────────────────────────────────────────────────────────────────────────
   test:
     name: "🧪 Test Suite — Python ${{ matrix.python-version }}"
@@ -31,10 +31,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: "📦 Install system dependencies (libmagic)"
+      - name: "📦 Install system dependencies"
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libmagic1
+          sudo apt-get install -y --no-install-recommends libmagic1 libmagic-dev
 
       - name: "📦 Install Python dependencies"
         run: |
@@ -82,10 +82,12 @@ jobs:
       - name: "🔐 Run Bandit high-severity security scan"
         run: |
           bandit -r forensight/ scripts/ -ll -q --severity-level high
-          echo "✅ Bandit SAST passed — zero high-severity findings"
+          echo "Bandit SAST passed — zero high-severity findings"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 3: Docker Build Verification
+  # Uses docker buildx bake / plain docker build so the image is loaded into
+  # the local daemon and can be referenced by docker run in the next step.
   # ─────────────────────────────────────────────────────────────────────────────
   docker:
     name: "🐳 Docker Build Verification"
@@ -99,19 +101,27 @@ jobs:
       - name: "🐳 Set up Docker Buildx"
         uses: docker/setup-buildx-action@v3
 
-      - name: "🐳 Build Docker image (multi-stage)"
+      - name: "🐳 Build Docker image and load into daemon"
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
-          tags: forensight:ci-${{ github.sha }}
+          load: true
+          tags: forensight:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: "🩺 Verify container health endpoint"
         run: |
-          docker run -d --name fs-ci -p 8000:8000 forensight:ci-${{ github.sha }}
-          sleep 15
+          docker run -d --name fs-ci -p 8000:8000 forensight:ci
+          echo "Waiting for container to be ready..."
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8000/api/v1/health > /dev/null 2>&1; then
+              echo "Container is healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
           curl -f http://127.0.0.1:8000/api/v1/health || (docker logs fs-ci && exit 1)
           docker stop fs-ci
-          echo "✅ Container health check passed"
+          echo "Docker health check passed"
