@@ -61,7 +61,6 @@ def run_audit() -> bool:
 
     # 3. Directory layout and permissions
     print("\n[*] Validating storage directory structure and permissions:")
-    base_dir = Path(__file__).resolve().parent.parent
     data_dir = base_dir / "data"
     subdirs = ["evidence", "keys", "reports", "samples"]
     for sub in subdirs:
@@ -80,13 +79,18 @@ def run_audit() -> bool:
     print("\n[*] Testing Ed25519 asymmetric keypair engine:")
     try:
         from forensight.crypto.keys import key_manager
-        from forensight.crypto.signing import sign_payload, verify_payload_signature
+        from forensight.crypto.signing import (
+            sign_payload,
+            verify_payload_signature,
+        )
 
         priv, pub = key_manager.load_or_create_keypair()
         test_payload = b"ForenSight Cryptographic Verification Probe"
         sig = sign_payload(test_payload, priv)
-        assert verify_payload_signature(test_payload, sig, pub) is True
-        print(f"  [+] Key Fingerprint: {key_manager.get_public_key_fingerprint(pub)}")
+        if not verify_payload_signature(test_payload, sig, pub):
+            raise RuntimeError("Ed25519 signature verification failed.")
+        fp = key_manager.get_public_key_fingerprint(pub)
+        print(f"  [+] Key Fingerprint: {fp}")
         print("  [+] PASS: Ed25519 signing and verification validated.")
     except Exception as err:
         print(f"  [-] FAIL: Cryptographic audit error: {err}")

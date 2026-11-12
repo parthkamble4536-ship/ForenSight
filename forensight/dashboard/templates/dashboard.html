@@ -1,96 +1,236 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}SOC Triage Console{% endblock %}
+{% block breadcrumb %}Triage Console{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+<div class="page-header">
     <div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 800;">Investigation Overview</h1>
-        <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 14px;">File-centric static triage, structure inspection, and evidence intelligence</p>
+        <h1 class="page-title">DFIR Triage &amp; Evidence Intelligence Console</h1>
+        <p class="page-subtitle">Static structural inspection, masquerade hunting, defanged IOC extraction, and Ed25519 custody tracking</p>
     </div>
-    <div>
-        <a href="/cases" class="btn btn-outline" style="margin-right: 8px;">View Cases</a>
+    <div style="display: flex; gap: 8px;">
+        <a href="/cases" class="btn btn-outline">Manage Cases</a>
+        <button type="button" onclick="document.getElementById('file-input').click()" class="btn">+ Ingest Artifact</button>
     </div>
 </div>
 
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="label">Investigation Cases</div>
-        <div class="value">{{ summary.total_cases }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="label">Cataloged Evidence</div>
-        <div class="value">{{ summary.total_evidence }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="label">Suspicious Artifacts</div>
-        <div class="value" style="color: var(--warning);">{{ summary.suspicious_evidence }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="label">Critical Findings</div>
-        <div class="value" style="color: var(--danger);">{{ summary.critical_findings }}</div>
-    </div>
-</div>
-
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Evidence Ingestion Dropzone</h2>
-        <span style="font-size: 11px; color: var(--text-muted); font-weight: 700;">MAX UPLOAD: 25 MB &bull; NO DYNAMIC EXECUTION</span>
-    </div>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <div class="dropzone" onclick="document.getElementById('file-input').click()">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p><strong style="color: var(--text-primary);">Click or drag evidence artifact here to ingest</strong></p>
-            <p>Supports Windows PE (EXE/DLL), PDF, Office (DOCX/DOCM), EML, ZIP archives, Images, and Text/Logs</p>
-            <input type="file" id="file-input" name="file" style="display: none;" onchange="this.form.submit()">
+<!-- KPI Telemetry Strip -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div>
+            <div class="kpi-label">Active Cases</div>
+            <div class="kpi-value mono">{{ summary.total_cases }}</div>
+            <div class="kpi-sub">Investigation dossiers</div>
         </div>
-    </form>
+        <div class="kpi-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+    </div>
+    <div class="kpi-card ok">
+        <div>
+            <div class="kpi-label">Vaulted Artifacts</div>
+            <div class="kpi-value mono">{{ summary.total_evidence }}</div>
+            <div class="kpi-sub">Read-only UUID isolation</div>
+        </div>
+        <div class="kpi-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+    </div>
+    <div class="kpi-card warn">
+        <div>
+            <div class="kpi-label">Flagged Artifacts</div>
+            <div class="kpi-value mono" style="color: var(--warning);">{{ summary.suspicious_evidence }}</div>
+            <div class="kpi-sub">Score &ge; 45 triage threshold</div>
+        </div>
+        <div class="kpi-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+    </div>
+    <div class="kpi-card crit">
+        <div>
+            <div class="kpi-label">Critical Detections</div>
+            <div class="kpi-value mono" style="color: var(--critical);">{{ summary.critical_findings }}</div>
+            <div class="kpi-sub">High-confidence static alerts</div>
+        </div>
+        <div class="kpi-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+    </div>
 </div>
 
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Recently Ingested Evidence Artifacts</h2>
+<!-- 2-Column Triage Intake + Static Engine Matrix -->
+<div class="split-grid-intake">
+    <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+            <h2 class="panel-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00d2ff" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Evidence Acquisition Dropzone
+            </h2>
+            <span class="panel-meta mono">STREAM LIMIT: 25 MB &bull; HASHED PRE-ANALYSIS</span>
+        </div>
+
+        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+            <div class="intake-controls">
+                <label for="case-select" class="mono" style="font-size: 11px; color: var(--text-muted); font-weight: 700;">ASSIGN CASE:</label>
+                <select id="case-select" name="case_id" class="select-dark" style="flex: 1; min-width: 200px;">
+                    <option value="">Standalone Triage (Unassigned)</option>
+                    {% for c in cases %}
+                    <option value="{{ c.case_id }}">{{ c.title }} ({{ c.investigator }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div id="soc-dropzone" class="dropzone" onclick="document.getElementById('file-input').click()">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#00d2ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <div class="dropzone-title" id="dropzone-label">Drop untrusted artifact here or click to browse</div>
+                <p class="dropzone-sub">Computes SHA-256 / SHA-1 / MD5 stream, signs Ed25519 manifest, and runs structural static parsers</p>
+                <input type="file" id="file-input" name="file" style="display: none;">
+            </div>
+        </form>
     </div>
+
+    <!-- Active Analyzer Engines Matrix -->
+    <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+            <h2 class="panel-title">Active Static Parsers</h2>
+            <span class="panel-meta mono" style="color: var(--success);">7 ENGINES ONLINE</span>
+        </div>
+        <div class="engine-list">
+            <div class="engine-row">
+                <div>
+                    <div class="engine-name">PE32 / PE64 (EXE, DLL)</div>
+                    <div class="engine-caps">Entropy, Timestomp, Imports, Authenticode</div>
+                </div>
+                <span class="engine-status mono">READY</span>
+            </div>
+            <div class="engine-row">
+                <div>
+                    <div class="engine-name">Adobe PDF</div>
+                    <div class="engine-caps">/JavaScript, /Launch, /OpenAction, /URI</div>
+                </div>
+                <span class="engine-status mono">READY</span>
+            </div>
+            <div class="engine-row">
+                <div>
+                    <div class="engine-name">OpenXML (DOCX / DOCM)</div>
+                    <div class="engine-caps">VBA Macros, OLE, T1221 Remote Template</div>
+                </div>
+                <span class="engine-status mono">READY</span>
+            </div>
+            <div class="engine-row">
+                <div>
+                    <div class="engine-name">RFC 822 Email (EML)</div>
+                    <div class="engine-caps">Reply-To Spoof, SPF/DKIM, Attachments</div>
+                </div>
+                <span class="engine-status mono">READY</span>
+            </div>
+            <div class="engine-row">
+                <div>
+                    <div class="engine-name">Archives / EXIF / Logs</div>
+                    <div class="engine-caps">Zip-Slip, Double-Ext, EXIF, LOLBins, Strings</div>
+                </div>
+                <span class="engine-status mono">READY</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Evidence Triage Queue -->
+<div class="panel" id="evidence-queue">
+    <div class="panel-header">
+        <h2 class="panel-title">Evidence Triage Queue ({{ evidence_list|length }})</h2>
+        <div class="mono" style="font-size: 11px; color: var(--text-muted);">SORTED BY ACQUISITION TIME (DESC)</div>
+    </div>
+
     {% if evidence_list %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Original Filename</th>
-                <th>Format</th>
-                <th>SHA-256 Digest</th>
-                <th>File Size</th>
-                <th>Ingested</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in evidence_list %}
-            <tr>
-                <td style="font-weight: 600;">
-                    <a href="/evidence/{{ item.evidence_id }}">{{ item.original_filename }}</a>
-                    {% if item.is_extension_mismatch %}
-                    <span class="badge badge-danger" style="margin-left: 6px;">Masquerade</span>
-                    {% endif %}
-                </td>
-                <td><span class="badge badge-info">{{ item.identified_type }}</span></td>
-                <td class="mono" style="font-size: 11px; color: var(--text-muted);">{{ item.sha256[:16] }}...{{ item.sha256[-8:] }}</td>
-                <td>{{ "{:,}".format(item.file_size_bytes) }} B</td>
-                <td style="color: var(--text-muted);">{{ item.stored_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>
-                    <a href="/evidence/{{ item.evidence_id }}" class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;">View Triage</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="toolbar">
+        <div class="chip-group" data-filter-group="queue">
+            <button type="button" class="filter-chip active" data-filter="ALL">All ({{ evidence_list|length }})</button>
+            <button type="button" class="filter-chip" data-filter="FLAGGED">Flagged / Masquerade</button>
+            <button type="button" class="filter-chip" data-filter="PE">PE</button>
+            <button type="button" class="filter-chip" data-filter="PDF">PDF</button>
+            <button type="button" class="filter-chip" data-filter="DOC">DOCX/M</button>
+            <button type="button" class="filter-chip" data-filter="EML">EML</button>
+            <button type="button" class="filter-chip" data-filter="ZIP">ZIP</button>
+            <button type="button" class="filter-chip" data-filter="TXT">TXT/LOG</button>
+        </div>
+        <input type="text" id="queue-search" class="input-dark mono" placeholder="Filter filename, SHA-256, verdict..." style="min-width: 260px;">
+    </div>
+
+    <div class="table-wrap">
+        <table class="data-table" id="queue-table">
+            <thead>
+                <tr>
+                    <th>Artifact &amp; Deception Flags</th>
+                    <th>Magic Format</th>
+                    <th>Risk Score &amp; Verdict</th>
+                    <th>SHA-256 Digest</th>
+                    <th>Size</th>
+                    <th>Acquired (UTC)</th>
+                    <th style="text-align: right;">Workbench</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in evidence_list %}
+                {% set run = risk_map.get(item.evidence_id) %}
+                {% set score = run.risk_score if run else 0 %}
+                {% set verdict = run.verdict if run else 'UNANALYZED' %}
+                <tr class="queue-row"
+                    data-type="{{ item.identified_type }}"
+                    data-flagged="{{ 'true' if (score >= 45 or item.is_extension_mismatch) else 'false' }}"
+                    data-search="{{ item.original_filename|lower }} {{ item.sha256|lower }} {{ item.identified_type|lower }} {{ verdict|lower }}">
+                    <td>
+                        <div style="font-weight: 700;">
+                            <a href="/evidence/{{ item.evidence_id }}">{{ item.original_filename }}</a>
+                        </div>
+                        <div style="display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap;">
+                            {% if item.is_extension_mismatch %}
+                            <span class="badge badge-critical">MASQUERADE ({{ item.declared_extension or 'NONE' }} &rarr; {{ item.identified_type }})</span>
+                            {% endif %}
+                            {% if run and run.findings %}
+                            <span class="badge badge-neutral">{{ run.findings|length }} detections</span>
+                            {% endif %}
+                            {% if run and run.iocs %}
+                            <span class="badge badge-neutral">{{ run.iocs|length }} IOCs</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td><span class="badge badge-info">{{ item.identified_type }}</span></td>
+                    <td>
+                        {% if score >= 70 %}
+                        <span class="badge badge-critical mono">{{ score }}/100 &bull; {{ verdict }}</span>
+                        {% elif score >= 45 %}
+                        <span class="badge badge-warning mono">{{ score }}/100 &bull; {{ verdict }}</span>
+                        {% elif run %}
+                        <span class="badge badge-success mono">{{ score }}/100 &bull; {{ verdict }}</span>
+                        {% else %}
+                        <span class="badge badge-neutral mono">UNANALYZED</span>
+                        {% endif %}
+                    </td>
+                    <td class="mono" style="font-size: 11.5px;">
+                        <div class="copy-inline">
+                            <span title="{{ item.sha256 }}">{{ item.sha256[:14] }}&hellip;{{ item.sha256[-8:] }}</span>
+                            <button type="button" class="btn btn-outline btn-xs" onclick="copyToClipboard('{{ item.sha256 }}', this)">Copy</button>
+                        </div>
+                    </td>
+                    <td class="mono" style="font-size: 12px;">{{ "{:,}".format(item.file_size_bytes) }} B</td>
+                    <td class="mono" style="font-size: 11.5px; color: var(--text-muted);">{{ item.stored_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td style="text-align: right;">
+                        <a href="/evidence/{{ item.evidence_id }}" class="btn btn-outline btn-sm">Inspect</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
-    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
-        No evidence artifacts uploaded yet. Use the dropzone above to ingest your first forensic specimen.
+    <div class="empty-state">
+        No evidence artifacts vaulted yet. Drop any test specimen from <code class="mono">data/samples/</code> into the acquisition dropzone above to start static triage.
     </div>
     {% endif %}
 </div>
 {% endblock %}
-

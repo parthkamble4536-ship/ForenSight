@@ -51,3 +51,4 @@ echo " (Press Ctrl+C to terminate)"
 echo "=================================================================="
 
 uvicorn forensight.main:app --host 127.0.0.1 --port 8000
+

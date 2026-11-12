@@ -1,76 +1,95 @@
 {% extends "base.html" %}
-{% block title %}Investigation Cases{% endblock %}
+{% block title %}Case Dossiers{% endblock %}
+{% block breadcrumb %}Case Management{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+<div class="page-header">
     <div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 800;">Investigation Cases</h1>
-        <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 14px;">Case-level evidence grouping and cross-artifact correlation</p>
+        <h1 class="page-title">Investigation Case Dossiers</h1>
+        <p class="page-subtitle">Structured incident grouping, evidence correlation, and chain-of-custody scoping</p>
     </div>
     <div>
-        <button onclick="document.getElementById('new-case-modal').style.display='block'" class="btn">+ New Case</button>
+        <button type="button" onclick="openNewCaseModal()" class="btn">+ New Case Dossier</button>
     </div>
 </div>
 
-<div class="card">
+<div class="panel">
+    <div class="panel-header">
+        <h2 class="panel-title">Cataloged Cases ({{ cases|length }})</h2>
+        <input type="text" id="case-search" class="input-dark mono" placeholder="Filter case title or investigator..." style="min-width: 240px;">
+    </div>
+
     {% if cases %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Case Title</th>
-                <th>Investigator</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for c in cases %}
-            <tr>
-                <td style="font-weight: 600;">
-                    <a href="/cases/{{ c.case_id }}">{{ c.title }}</a>
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight: normal;">{{ c.description or 'No case notes provided.' }}</div>
-                </td>
-                <td>{{ c.investigator }}</td>
-                <td><span class="badge badge-success">{{ c.status }}</span></td>
-                <td style="color: var(--text-muted);">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>
-                    <a href="/cases/{{ c.case_id }}" class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;">Open Case</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-wrap">
+        <table class="data-table" id="cases-table">
+            <thead>
+                <tr>
+                    <th>Case Dossier &amp; Notes</th>
+                    <th>Case UUID</th>
+                    <th>Lead Investigator</th>
+                    <th>Status</th>
+                    <th>Opened (UTC)</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in cases %}
+                <tr class="case-row" data-search="{{ c.title|lower }} {{ c.investigator|lower }} {{ (c.description or '')|lower }}">
+                    <td>
+                        <div style="font-weight: 700; font-size: 13.5px;">
+                            <a href="/cases/{{ c.case_id }}">{{ c.title }}</a>
+                        </div>
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">{{ c.description or 'No investigation notes provided.' }}</div>
+                    </td>
+                    <td class="mono" style="font-size: 11.5px; color: var(--text-dim);">
+                        <div class="copy-inline">
+                            <span>{{ c.case_id[:12] }}&hellip;</span>
+                            <button type="button" class="btn btn-outline btn-xs" onclick="copyToClipboard('{{ c.case_id }}', this)">Copy</button>
+                        </div>
+                    </td>
+                    <td style="font-weight: 600;">{{ c.investigator }}</td>
+                    <td><span class="badge badge-success">{{ c.status }}</span></td>
+                    <td class="mono" style="font-size: 11.5px; color: var(--text-muted);">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td style="text-align: right;">
+                        <a href="/cases/{{ c.case_id }}" class="btn btn-outline btn-sm">Open Dossier</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
-    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
-        No investigation cases cataloged yet. Click "+ New Case" to create your first case.
+    <div class="empty-state">
+        No investigation cases cataloged yet. Click <strong>+ New Case Dossier</strong> to initialize an incident folder.
     </div>
     {% endif %}
 </div>
 
-<!-- Simple New Case Form Modal -->
-<div id="new-case-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100;">
-    <div style="max-width: 500px; margin: 100px auto; background: var(--card-bg); border: 1px solid var(--border-light); border-radius: 8px; padding: 24px;">
-        <h3 style="margin-top: 0;">Create Investigation Case</h3>
+<!-- New Case Modal -->
+<div id="new-case-modal" class="modal-backdrop" onclick="if(event.target===this) closeNewCaseModal()">
+    <div class="modal-card">
+        <div class="panel-header" style="margin-bottom: 16px;">
+            <h3 class="panel-title">Initialize Investigation Case</h3>
+            <button type="button" class="btn btn-outline btn-xs" onclick="closeNewCaseModal()">ESC</button>
+        </div>
         <form action="/cases" method="post">
-            <div style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">CASE TITLE</label>
-                <input type="text" name="title" required style="width: 100%; padding: 8px; background: #020617; border: 1px solid var(--border-light); color: #fff; border-radius: 4px;">
+            <div class="form-group">
+                <label class="form-label">Case Title / Incident Reference</label>
+                <input type="text" name="title" required placeholder="e.g., IR-2026-041 Phishing Dropper Triage" class="input-dark" style="width: 100%;">
             </div>
-            <div style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">DESCRIPTION / NOTES</label>
-                <textarea name="description" rows="3" style="width: 100%; padding: 8px; background: #020617; border: 1px solid var(--border-light); color: #fff; border-radius: 4px;"></textarea>
+            <div class="form-group">
+                <label class="form-label">Scope / Investigation Notes</label>
+                <textarea name="description" rows="3" placeholder="Brief summary of incident scope, source host, or alert context..." class="textarea-dark" style="width: 100%; resize: vertical;"></textarea>
             </div>
-            <div style="margin-bottom: 24px;">
-                <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">LEAD INVESTIGATOR</label>
-                <input type="text" name="investigator" value="Forensic Analyst" style="width: 100%; padding: 8px; background: #020617; border: 1px solid var(--border-light); color: #fff; border-radius: 4px;">
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label class="form-label">Lead Investigator</label>
+                <input type="text" name="investigator" value="SOC Analyst Tier-2" class="input-dark" style="width: 100%;">
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button type="button" onclick="document.getElementById('new-case-modal').style.display='none'" class="btn btn-outline">Cancel</button>
-                <button type="submit" class="btn">Create Case</button>
+                <button type="button" onclick="closeNewCaseModal()" class="btn btn-outline">Cancel</button>
+                <button type="submit" class="btn">Create Case Dossier</button>
             </div>
         </form>
     </div>
 </div>
 {% endblock %}
-

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from forensight.analyzers import get_analyzer_for_type
 from forensight.core.config import settings
+from forensight.core.exceptions import DuplicateEvidenceError, FileSizeExceededError
 from forensight.core.types import (
     AnalysisResult,
     EvidenceManifest,
@@ -54,16 +55,23 @@ templates = Jinja2Templates(directory=str(templates_dir))
 
 @dashboard_router.get("/", response_class=HTMLResponse)
 def index_page(request: Request, db: Session = Depends(get_db)):
-    """Main dashboard page."""
+    """Main SOC triage dashboard page."""
     summary = get_dashboard_summary(db)
-    evidence_items = list_evidence(db, limit=15)
+    evidence_items = list_evidence(db, limit=50)
+    cases = list_cases(db, limit=50)
+    risk_map = {
+        ev.evidence_id: get_latest_analysis_run(db, ev.evidence_id)
+        for ev in evidence_items
+    }
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request=request,
+        name="dashboard.html",
+        context={
             "active_tab": "dashboard",
             "summary": summary,
             "evidence_list": evidence_items,
+            "cases": cases,
+            "risk_map": risk_map,
         },
     )
 
@@ -75,15 +83,24 @@ def handle_dashboard_upload(
     db: Session = Depends(get_db),
 ):
     """Handle drag-and-drop file upload from dashboard and redirect to triage view."""
+    clean_case_id = case_id.strip() if isinstance(case_id, str) and case_id.strip() else None
     filename = file.filename or "uploaded_artifact.bin"
 
     # Ingest file into storage vault
-    ingest_result = ingestion_pipeline.ingest_stream(
-        stream=file.file,
-        original_filename=filename,
-        case_id=case_id,
-        allow_duplicates=False,
-    )
+    try:
+        ingest_result = ingestion_pipeline.ingest_stream(
+            stream=file.file,
+            original_filename=filename,
+            case_id=clean_case_id,
+            allow_duplicates=False,
+        )
+    except DuplicateEvidenceError as dup:
+        existing_id = getattr(dup, "existing_evidence_id", None)
+        if existing_id and get_evidence(db, existing_id):
+            return RedirectResponse(url=f"/evidence/{existing_id}", status_code=303)
+        raise HTTPException(status_code=409, detail=str(dup))
+    except FileSizeExceededError as size_err:
+        raise HTTPException(status_code=413, detail=str(size_err))
 
     # Sign manifest
     priv_key, pub_key = key_manager.load_or_create_keypair()
@@ -100,7 +117,7 @@ def handle_dashboard_upload(
     # Custody log
     custody_ev = custody_ledger.record_event(
         evidence_id=ingest_result.evidence.evidence_id,
-        case_id=case_id,
+        case_id=clean_case_id,
         event_type="ACQUISITION",
         details=f"Acquired artifact '{filename}' (SHA-256: {ingest_result.evidence.hashes.sha256})",
     )
@@ -130,7 +147,7 @@ def handle_dashboard_upload(
 
     analysis_custody = custody_ledger.record_event(
         evidence_id=ingest_result.evidence.evidence_id,
-        case_id=case_id,
+        case_id=clean_case_id,
         event_type="ANALYSIS_RUN",
         details=f"Analysis completed: Verdict={risk.verdict} ({risk.score}/100)",
     )
@@ -147,9 +164,9 @@ def cases_page(request: Request, db: Session = Depends(get_db)):
     """Investigation cases index."""
     cases = list_cases(db)
     return templates.TemplateResponse(
-        "cases.html",
-        {
-            "request": request,
+        request=request,
+        name="cases.html",
+        context={
             "active_tab": "cases",
             "cases": cases,
         },
@@ -179,9 +196,11 @@ def case_detail_page(case_id: str, request: Request, db: Session = Depends(get_d
 
     # Reconstruct AnalysisResults for correlation graph
     case_results = []
+    risk_map = {}
     for ev in evidence_items:
         run = get_latest_analysis_run(db, ev.evidence_id)
         if run:
+            risk_map[ev.evidence_id] = run
             findings = [
                 Finding(
                     finding_id=f.finding_id,
@@ -241,13 +260,14 @@ def case_detail_page(case_id: str, request: Request, db: Session = Depends(get_d
     relationships = evidence_correlator.correlate_case_evidence(case_results)
 
     return templates.TemplateResponse(
-        "case_detail.html",
-        {
-            "request": request,
+        request=request,
+        name="case_detail.html",
+        context={
             "active_tab": "cases",
             "case": case,
             "evidence_items": evidence_items,
             "relationships": relationships,
+            "risk_map": risk_map,
         },
     )
 
@@ -261,14 +281,24 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
 
     run = get_latest_analysis_run(db, evidence_id)
     custody_events = list_custody_events(db, evidence_id=evidence_id)
+    case_obj = get_case(db, ev.case_id) if ev.case_id else None
 
     raw_details_str = None
+    parsed_details = {}
     if run and run.raw_details_json:
         try:
             parsed = json.loads(run.raw_details_json)
+            if isinstance(parsed, dict):
+                parsed_details = parsed
             raw_details_str = json.dumps(parsed, indent=2)
         except Exception:
             raw_details_str = run.raw_details_json
+
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    if run and run.findings:
+        for finding in run.findings:
+            sev = (finding.severity or "INFO").upper()
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
     # Reconstruct timeline events if analyzer run exists
     timeline_events = []
@@ -287,14 +317,17 @@ def evidence_detail_page(evidence_id: str, request: Request, db: Session = Depen
             timeline_events = out.timeline_events
 
     return templates.TemplateResponse(
-        "evidence_detail.html",
-        {
-            "request": request,
+        request=request,
+        name="evidence_detail.html",
+        context={
             "active_tab": "dashboard",
             "evidence": ev,
+            "case": case_obj,
             "analysis": run,
             "custody_events": custody_events,
             "raw_details": raw_details_str,
+            "parsed_details": parsed_details,
+            "severity_counts": severity_counts,
             "timeline_events": timeline_events,
         },
     )
