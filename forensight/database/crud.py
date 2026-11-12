@@ -139,19 +139,26 @@ def record_analysis_run(
     db.add(run)
 
     for f in findings:
+        det_ts = f.detected_at if f.detected_at.tzinfo else f.detected_at.replace(tzinfo=timezone.utc)
         f_model = FindingModel(
             finding_id=f.finding_id or str(uuid.uuid4()),
             run_id=run_id,
             rule_id=f.rule_id,
+            rule_version=f.rule_version,
             category=f.category,
             title=f.title,
             description=f.description,
             severity=f.severity.value,
             confidence=f.confidence.value,
             score_impact=f.score_impact,
+            analyzer_name=f.analyzer_name or f.evidence_source or None,
+            analyzer_version=f.analyzer_version,
+            evidence_reference=f.evidence_reference or evidence_id,
             object_reference=f.object_reference,
+            offset=f.offset,
             explanation=f.explanation,
             mitre_technique=f.mitre_technique,
+            detected_at=det_ts.astimezone(timezone.utc),
         )
         db.add(f_model)
 
@@ -163,6 +170,8 @@ def record_analysis_run(
             value=ioc.value,
             defanged_value=ioc.defanged_value,
             context=ioc.context,
+            offset=ioc.offset,
+            occurrences=ioc.occurrences,
             confidence=ioc.confidence.value,
         )
         db.add(ioc_model)

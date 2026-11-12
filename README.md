@@ -281,6 +281,20 @@ tests/test_text_analyzer.py ................ PASSED [100%]
 
 ---
 
+## Supported Formats & Known Limitations
+
+| Format / Category | Analyzer | Static Inspection Capabilities | Known Limitations |
+| :--- | :--- | :--- | :--- |
+| **Windows PE (`EXE`, `DLL`, `SYS`)** | `PEAnalyzer` (`2.1.0`) | DOS/NT headers, PE32 vs PE32+, section entropy/permissions (W^X, zero raw size), bounded imports/exports/resources, CodeView debug PDB path, Authenticode table presence, overlay size. | Authenticode certificate presence does not perform OS trust-chain validation; heavily corrupted headers fall back to `PE-CORRUPT-001`. |
+| **Adobe PDF** | `PDFAnalyzer` (`2.1.0`) | `/JavaScript`, `/JS`, `/OpenAction`, `/AA`, `/Launch`, `/EmbeddedFiles`, `/SubmitForm`, `/AcroForm`/`/XFA`, `/RichMedia`, `/ObjStm`, deduplicated `/URI` IOCs, metadata timestamps. | Raw scan bounded to 25 MB and 200 pages; encrypted PDF streams cannot inspect internal objects without decryption keys. |
+| **OpenXML (`DOCX`, `DOCM`)** | `DocxAnalyzer` (`2.1.0`) | OpenXML `.rels` external URLs, remote template injection (`T1221`), VBA project presence (`vbaProject.bin`), embedded OLE parts, `docProps/core.xml` authorship & timestamps. | Macro presence indicates script capability only, not execution proof; XML parts capped at 2 MB per member; legacy binary `.doc` OLE2 falls back to string triage. |
+| **RFC 822 Email (`EML`)** | `EmailAnalyzer` (`2.1.0`) | `From` / `Reply-To` / `Return-Path` inconsistencies, `Received` hops, `Authentication-Results` (SPF/DKIM/DMARC claims), MIME parts, attachment SHA-256 & extension risks, body URL/domain IOCs. | Authentication headers represent self-reported message claims (no DNS/DKIM key queries); binary Outlook `.msg` (OLE2) is not natively parsed and falls back to string triage. |
+| **ZIP Archives** | `ArchiveAnalyzer` (`2.1.0`) | Zip-Slip traversal defense, zip-bomb bounds (`500` entries, `100 MB`, `100.0x`, depth `2`, `5s` budget), double extensions, executables, encrypted entries, bounded nested ZIP inspection. | Encrypted entries, RAR/7z/TAR containers cannot have internal members unpacked cleanly without external native decompressors. |
+| **Images (`JPEG`, `PNG`, `GIF`)** | `ImageAnalyzer` (`2.1.0`) | EXIF tags, camera make/model, timestamps, editing software signatures, Pillow decompression-bomb guards. | Stripped metadata leaves only structural/entropy observations. |
+| **Text / Logs / Unknown Binaries** | `TextAnalyzer` (`2.1.0`) | Bounded ASCII & UTF-16LE string extraction (`5,000` strings, `10 MB` sample), encoding confidence, command/LOLBin patterns with byte offsets, defanged IOC extraction. | Heuristic regex/keyword patterns do not replace full disassembly or dynamic sandboxing. |
+
+---
+
 ## Boundaries & Disclaimer
 
 - **TriageHound Boundary**: ForenSight is an independent file-centric static forensics platform. It is strictly separate from live-system incident response frameworks (e.g. TriageHound).

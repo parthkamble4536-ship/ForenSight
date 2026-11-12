@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Set
 from pypdf import PdfReader
 
 from forensight.analyzers.base import AnalyzerOutput, BaseAnalyzer
+from forensight.core.config import settings
 from forensight.core.security import defang_ioc
 from forensight.core.types import (
     ConfidenceLevel,
@@ -97,9 +98,16 @@ class PDFAnalyzer(BaseAnalyzer):
         },
     }
 
+    MAX_PDF_PAGES = 200
+    MAX_EXTRACTED_URIS = 100
+
     @property
     def name(self) -> str:
         return "PDF Forensic Analyzer"
+
+    @property
+    def version(self) -> str:
+        return "2.1.0"
 
     @property
     def supported_types(self) -> List[str]:
@@ -112,9 +120,7 @@ class PDFAnalyzer(BaseAnalyzer):
         if not date_str or not isinstance(date_str, str):
             return None
 
-        # Clean prefix
         cleaned = date_str.replace("D:", "").replace("'", "")
-        # Basic match for at least YYYYMMDD
         match = re.match(r"^(\d{4})(\d{2})(\d{2})?(\d{2})?(\d{2})?(\d{2})?", cleaned)
         if match:
             year, month = int(match.group(1)), int(match.group(2))
@@ -135,35 +141,160 @@ class PDFAnalyzer(BaseAnalyzer):
         timeline: List[TimelineEvent] = []
         details: Dict[str, Any] = {}
 
-        # 1. Structural inspection via raw byte scan (catches obfuscated or malformed PDF streams)
-        raw_bytes = file_path.read_bytes()
+        # 1. Bounded raw byte structural inspection (catches obfuscated/malformed PDF streams)
+        with open(file_path, "rb") as f:
+            raw_bytes = f.read(settings.max_upload_size_bytes)
 
         detected_keywords: Dict[str, int] = {}
+        keyword_offsets: Dict[str, int] = {}
         for keyword in self.SUSPICIOUS_KEYWORD_PATTERNS:
             pattern = keyword.encode("ascii")
             count = raw_bytes.count(pattern)
             if count > 0:
                 detected_keywords[keyword] = count
+                keyword_offsets[keyword] = raw_bytes.find(pattern)
 
-        # Extract embedded URLs from /URI actions
-        uri_matches = re.findall(rb"/URI\s*\((https?://[^)]+)\)", raw_bytes, re.IGNORECASE)
-        for raw_url in uri_matches:
-            url_str = raw_url.decode("utf-8", errors="ignore")
-            iocs.append(
-                IOCRecord(
-                    ioc_type=IOCType.URL,
-                    value=url_str,
-                    defanged_value=defang_ioc(url_str),
-                    context="PDF /URI Action Target",
-                    confidence=ConfidenceLevel.CONFIRMED,
+        # Structural counts (forms, XFA, annotations, RichMedia, object streams)
+        acroform_count = raw_bytes.count(b"/AcroForm")
+        xfa_count = raw_bytes.count(b"/XFA")
+        annot_count = raw_bytes.count(b"/Annot")
+        richmedia_count = raw_bytes.count(b"/RichMedia")
+        objstm_count = raw_bytes.count(b"/ObjStm")
+
+        details["acroform_count"] = acroform_count
+        details["xfa_count"] = xfa_count
+        details["annotation_count"] = annot_count
+        details["richmedia_count"] = richmedia_count
+        details["object_stream_count"] = objstm_count
+
+        if acroform_count > 0 or xfa_count > 0:
+            findings.append(
+                Finding(
+                    rule_id="PDF-FORM-001",
+                    rule_version="1.0.0",
+                    category="STRUCTURE",
+                    title=f"Interactive PDF Forms Detected (AcroForm={acroform_count}, XFA={xfa_count})",
+                    description="Document contains /AcroForm or /XFA interactive XML form structures.",
+                    severity=FindingSeverity.LOW if xfa_count == 0 else FindingSeverity.MEDIUM,
+                    confidence=ConfidenceLevel.HIGH,
+                    score_impact=10 if xfa_count == 0 else 20,
+                    evidence_source=self.name,
+                    object_reference="/XFA" if xfa_count > 0 else "/AcroForm",
+                    offset=raw_bytes.find(b"/XFA") if xfa_count > 0 else raw_bytes.find(b"/AcroForm"),
+                    explanation="PDF forms are common in legitimate business documents, though XFA XML forms have historically expanded parser attack surfaces.",
                 )
             )
 
-        # 2. Structural parsing via pypdf
+        if richmedia_count > 0:
+            findings.append(
+                Finding(
+                    rule_id="PDF-MEDIA-001",
+                    rule_version="1.0.0",
+                    category="EMBEDDED_OBJECT",
+                    title="RichMedia Annotation Stream (/RichMedia)",
+                    description=f"Document contains {richmedia_count} /RichMedia embedded stream markers.",
+                    severity=FindingSeverity.MEDIUM,
+                    confidence=ConfidenceLevel.CONFIRMED,
+                    score_impact=20,
+                    evidence_source=self.name,
+                    object_reference="/RichMedia",
+                    offset=raw_bytes.find(b"/RichMedia"),
+                    explanation="Embedded RichMedia/Flash streams were historically abused to deliver memory-corruption payloads inside PDFs.",
+                )
+            )
+
+        # Extract embedded URLs from /URI actions (bounded & deduplicated)
+        seen_urls: Set[str] = set()
+        for match in re.finditer(rb"/URI\s*\((https?://[^)]+)\)", raw_bytes, re.IGNORECASE):
+            if len(seen_urls) >= self.MAX_EXTRACTED_URIS:
+                break
+            url_str = match.group(1).decode("utf-8", errors="ignore")
+            if url_str not in seen_urls:
+                seen_urls.add(url_str)
+                iocs.append(
+                    IOCRecord(
+                        ioc_type=IOCType.URL,
+                        value=url_str,
+                        defanged_value=defang_ioc(url_str),
+                        context="PDF /URI Action Target",
+                        offset=match.start(),
+                        confidence=ConfidenceLevel.CONFIRMED,
+                    )
+                )
+
+        # 2. Bounded structural parsing via pypdf (strictly static, never executes JS)
+        embedded_files: List[str] = []
         try:
             reader = PdfReader(str(file_path), strict=False)
             details["is_encrypted"] = reader.is_encrypted
             details["page_count"] = len(reader.pages)
+            details["pages_inspected"] = min(len(reader.pages), self.MAX_PDF_PAGES)
+
+            if reader.is_encrypted:
+                findings.append(
+                    Finding(
+                        rule_id="PDF-ENC-001",
+                        rule_version="1.0.0",
+                        category="EVASION",
+                        title="Encrypted PDF Document",
+                        description="PDF stream is encrypted, which can obscure object contents from static scanners.",
+                        severity=FindingSeverity.LOW,
+                        confidence=ConfidenceLevel.CONFIRMED,
+                        score_impact=10,
+                        evidence_source=self.name,
+                        object_reference="PDF Trailer /Encrypt",
+                        explanation="Encryption is used legitimately for confidential documents and maliciously to evade content inspection.",
+                    )
+                )
+
+            # Inspect page annotations bounded by MAX_PDF_PAGES
+            if not reader.is_encrypted:
+                for page_idx, page in enumerate(reader.pages[: self.MAX_PDF_PAGES]):
+                    annots = page.get("/Annots")
+                    if not annots:
+                        continue
+                    try:
+                        annot_list = annots.get_object() if hasattr(annots, "get_object") else annots
+                        for annot_ref in list(annot_list)[:100]:
+                            annot_obj = annot_ref.get_object() if hasattr(annot_ref, "get_object") else annot_ref
+                            if not isinstance(annot_obj, dict):
+                                continue
+                            action = annot_obj.get("/A")
+                            action_obj = action.get_object() if hasattr(action, "get_object") else action
+                            if isinstance(action_obj, dict) and "/URI" in action_obj:
+                                uri_val = str(action_obj["/URI"])
+                                if uri_val.startswith(("http://", "https://")) and uri_val not in seen_urls and len(seen_urls) < self.MAX_EXTRACTED_URIS:
+                                    seen_urls.add(uri_val)
+                                    iocs.append(
+                                        IOCRecord(
+                                            ioc_type=IOCType.URL,
+                                            value=uri_val,
+                                            defanged_value=defang_ioc(uri_val),
+                                            context=f"PDF Page {page_idx + 1} Annotation /URI",
+                                            confidence=ConfidenceLevel.CONFIRMED,
+                                        )
+                                    )
+                    except Exception:
+                        continue
+
+                # Inspect Catalog /Names /EmbeddedFiles filenames safely without extracting payloads
+                try:
+                    root = reader.trailer.get("/Root", {})
+                    root_obj = root.get_object() if hasattr(root, "get_object") else root
+                    if isinstance(root_obj, dict) and "/Names" in root_obj:
+                        names = root_obj["/Names"]
+                        names_obj = names.get_object() if hasattr(names, "get_object") else names
+                        if isinstance(names_obj, dict) and "/EmbeddedFiles" in names_obj:
+                            ef_tree = names_obj["/EmbeddedFiles"]
+                            ef_obj = ef_tree.get_object() if hasattr(ef_tree, "get_object") else ef_tree
+                            if isinstance(ef_obj, dict) and "/Names" in ef_obj:
+                                raw_ef_names = ef_obj["/Names"]
+                                for item in list(raw_ef_names)[0:50:2]:
+                                    embedded_files.append(str(item))
+                except Exception:
+                    pass
+
+            details["embedded_files"] = embedded_files
 
             # Metadata extraction
             doc_info = reader.metadata
@@ -172,53 +303,51 @@ class PDFAnalyzer(BaseAnalyzer):
                 creator = doc_info.creator or ""
                 producer = doc_info.producer or ""
                 title = doc_info.title or ""
+                subject = getattr(doc_info, "subject", None) or ""
 
                 details["author"] = author
                 details["creator"] = creator
                 details["producer"] = producer
                 details["title"] = title
+                details["subject"] = subject
 
-                # Creation timestamp
                 if doc_info.creation_date:
+                    raw_dt = str(doc_info.creation_date)
                     dt = doc_info.creation_date
-                    if isinstance(dt, datetime):
-                        creation_dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-                    else:
-                        creation_dt = self._parse_pdf_date(str(dt))
-
+                    creation_dt = (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)) if isinstance(dt, datetime) else self._parse_pdf_date(raw_dt)
                     if creation_dt:
+                        creation_dt = creation_dt.astimezone(timezone.utc)
                         details["creation_time_iso"] = creation_dt.isoformat()
                         timeline.append(
                             TimelineEvent(
                                 event_id="pdf-creation",
                                 evidence_id="",
                                 timestamp=creation_dt,
+                                original_timestamp=raw_dt,
                                 timestamp_type=TimelineEventType.METADATA,
                                 source="PDF Metadata (CreationDate)",
-                                description=f"PDF document created: {creation_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                                confidence=ConfidenceLevel.HIGH,
+                                description=f"PDF metadata CreationDate claim: {creation_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                                confidence=ConfidenceLevel.MEDIUM,
                             )
                         )
 
-                # Modification timestamp
                 if doc_info.modification_date:
+                    raw_mdt = str(doc_info.modification_date)
                     dt = doc_info.modification_date
-                    if isinstance(dt, datetime):
-                        mod_dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-                    else:
-                        mod_dt = self._parse_pdf_date(str(dt))
-
+                    mod_dt = (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)) if isinstance(dt, datetime) else self._parse_pdf_date(raw_mdt)
                     if mod_dt:
+                        mod_dt = mod_dt.astimezone(timezone.utc)
                         details["modification_time_iso"] = mod_dt.isoformat()
                         timeline.append(
                             TimelineEvent(
                                 event_id="pdf-modification",
                                 evidence_id="",
                                 timestamp=mod_dt,
+                                original_timestamp=raw_mdt,
                                 timestamp_type=TimelineEventType.METADATA,
                                 source="PDF Metadata (ModDate)",
-                                description=f"PDF document modified: {mod_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                                confidence=ConfidenceLevel.HIGH,
+                                description=f"PDF metadata ModDate claim: {mod_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                                confidence=ConfidenceLevel.MEDIUM,
                             )
                         )
 
@@ -226,6 +355,7 @@ class PDFAnalyzer(BaseAnalyzer):
             findings.append(
                 Finding(
                     rule_id="PDF-STRUCT-001",
+                    rule_version="1.1.0",
                     category="ANOMALY",
                     title="Malformed PDF Object Tree",
                     description=f"PDF object tree could not be fully parsed by standard reader: {err}",
@@ -233,31 +363,33 @@ class PDFAnalyzer(BaseAnalyzer):
                     confidence=ConfidenceLevel.HIGH,
                     score_impact=15,
                     evidence_source=self.name,
-                    explanation="Crafted malformed structures are frequently utilized in PDF exploits to evade security scanners while still rendering in Acrobat.",
+                    explanation="Crafted malformed structures are frequently utilized in PDF exploits or corrupted captures.",
                 )
             )
 
-        # 3. Generate Findings from detected keywords
+        # 3. Generate Findings from detected active/script keywords
         for keyword, count in detected_keywords.items():
             rule = self.SUSPICIOUS_KEYWORD_PATTERNS[keyword]
             findings.append(
                 Finding(
                     rule_id=rule["rule_id"],
+                    rule_version="1.1.0",
                     category="DOCUMENT_ACTION",
                     title=f"{rule['title']} ({count} occurrences)",
-                    description=f"{rule['description']} Found {count} instances in object streams.",
+                    description=f"{rule['description']} Observed {count} instances in bounded byte scan.",
                     severity=rule["severity"],
                     confidence=ConfidenceLevel.CONFIRMED,
                     score_impact=rule["score_impact"],
                     evidence_source=self.name,
                     object_reference=keyword,
+                    offset=keyword_offsets.get(keyword),
                     mitre_technique=rule["mitre"],
                     explanation=rule["explanation"],
                 )
             )
 
         details["detected_suspicious_keywords"] = detected_keywords
-        output.findings = findings
+        output.findings = self.finalize_findings(findings)
         output.iocs = iocs
         output.timeline_events = timeline
         output.details = details

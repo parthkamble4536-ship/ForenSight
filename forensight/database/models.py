@@ -138,7 +138,7 @@ class AnalysisRunModel(Base):
 
 
 class FindingModel(Base):
-    """Individual explainable triage finding."""
+    """Individual explainable triage finding with rule & analyzer provenance."""
 
     __tablename__ = "findings"
 
@@ -150,15 +150,21 @@ class FindingModel(Base):
         index=True,
     )
     rule_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(20), default="1.0.0", nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(String(20), default="INFO")
     confidence: Mapped[str] = mapped_column(String(20), default="HIGH")
     score_impact: Mapped[int] = mapped_column(Integer, default=0)
+    analyzer_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    analyzer_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    evidence_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     object_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    offset: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     explanation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mitre_technique: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    detected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     analysis_run: Mapped["AnalysisRunModel"] = relationship("AnalysisRunModel", back_populates="findings")
 
@@ -179,6 +185,8 @@ class IOCModel(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
     defanged_value: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    offset: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     confidence: Mapped[str] = mapped_column(String(20), default="HIGH")
 
     analysis_run: Mapped["AnalysisRunModel"] = relationship("AnalysisRunModel", back_populates="iocs")

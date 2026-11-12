@@ -8,7 +8,7 @@ and path traversal checks before any archive content can be inspected.
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import BinaryIO, List, Optional, Union
 
 from forensight.core.config import settings
 from forensight.core.exceptions import (
@@ -76,11 +76,11 @@ class ArchiveSafetyInspector:
         self.max_compression_ratio = max_compression_ratio
         self.max_recursion_depth = max_recursion_depth
 
-    def inspect_zip(self, archive_path: Path) -> ArchiveSafetyReport:
+    def inspect_zip(self, archive_path: Union[Path, BinaryIO]) -> ArchiveSafetyReport:
         """
-        Inspect a ZIP archive safely and produce a comprehensive safety report.
+        Inspect a ZIP archive (Path or in-memory file-like object) safely without extracting files to disk.
         """
-        if not zipfile.is_zipfile(archive_path):
+        if isinstance(archive_path, Path) and not zipfile.is_zipfile(archive_path):
             raise CorruptArchiveError(f"Target file [{archive_path.name}] is not a valid ZIP archive.")
 
         total_entries = 0

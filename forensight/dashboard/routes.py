@@ -147,6 +147,10 @@ def handle_dashboard_upload(
 
     if analyzer:
         output = analyzer.analyze(stored_path, ingest_result.metadata)
+        output.findings = analyzer.finalize_findings(
+            output.findings,
+            evidence_reference=ingest_result.evidence.evidence_id,
+        )
     else:
         from forensight.analyzers.base import AnalyzerOutput
         output = AnalyzerOutput()
@@ -392,14 +396,26 @@ def _build_analysis_result(
         Finding(
             finding_id=f.finding_id,
             rule_id=f.rule_id,
+            rule_version=getattr(f, "rule_version", "1.0.0") or "1.0.0",
             category=f.category,
             title=f.title,
             description=f.description,
             severity=FindingSeverity(f.severity),
+            confidence=ConfidenceLevel(getattr(f, "confidence", "HIGH") or "HIGH"),
             score_impact=f.score_impact,
+            analyzer_name=getattr(f, "analyzer_name", None) or "",
+            analyzer_version=getattr(f, "analyzer_version", None) or "2.0.0",
+            evidence_source=getattr(f, "analyzer_name", None) or "",
+            evidence_reference=getattr(f, "evidence_reference", None) or ev.evidence_id,
             object_reference=f.object_reference,
+            offset=getattr(f, "offset", None),
             explanation=f.explanation,
             mitre_technique=f.mitre_technique,
+            detected_at=(
+                f.detected_at.replace(tzinfo=timezone.utc)
+                if getattr(f, "detected_at", None) and f.detected_at.tzinfo is None
+                else (f.detected_at if getattr(f, "detected_at", None) else run.analyzed_at.replace(tzinfo=timezone.utc))
+            ),
         )
         for f in (run.findings if run else [])
     ]
@@ -409,6 +425,9 @@ def _build_analysis_result(
             value=i.value,
             defanged_value=i.defanged_value,
             context=i.context,
+            offset=getattr(i, "offset", None),
+            occurrences=getattr(i, "occurrences", 1) or 1,
+            confidence=ConfidenceLevel(getattr(i, "confidence", "HIGH") or "HIGH"),
         )
         for i in (run.iocs if run else [])
     ]

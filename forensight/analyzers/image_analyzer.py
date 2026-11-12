@@ -36,6 +36,10 @@ class ImageAnalyzer(BaseAnalyzer):
         return "Image Forensic Analyzer"
 
     @property
+    def version(self) -> str:
+        return "2.1.0"
+
+    @property
     def supported_types(self) -> List[str]:
         return ["IMAGE_JPEG", "IMAGE_PNG", "IMAGE_GIF", "IMAGE"]
 
@@ -111,10 +115,11 @@ class ImageAnalyzer(BaseAnalyzer):
                                         event_id=f"img-exif-{dt_tag}",
                                         evidence_id="",
                                         timestamp=parsed_dt,
+                                        original_timestamp=str(raw_date),
                                         timestamp_type=TimelineEventType.METADATA,
                                         source=f"Image EXIF ({dt_tag})",
-                                        description=f"Image capture/modification timestamp: {parsed_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-                                        confidence=ConfidenceLevel.HIGH,
+                                        description=f"Image EXIF {dt_tag} claim: {parsed_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                                        confidence=ConfidenceLevel.MEDIUM,
                                     )
                                 )
                                 break
@@ -135,7 +140,7 @@ class ImageAnalyzer(BaseAnalyzer):
                 )
             )
 
-        output.findings = findings
+        output.findings = self.finalize_findings(findings)
         output.timeline_events = timeline
         output.details = details
         return output

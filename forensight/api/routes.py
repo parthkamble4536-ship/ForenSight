@@ -181,6 +181,10 @@ def upload_evidence(
 
     if analyzer:
         analysis_output = analyzer.analyze(stored_path, ingest_result.metadata)
+        analysis_output.findings = analyzer.finalize_findings(
+            analysis_output.findings,
+            evidence_reference=ingest_result.evidence.evidence_id,
+        )
     else:
         from forensight.analyzers.base import AnalyzerOutput
         analysis_output = AnalyzerOutput()

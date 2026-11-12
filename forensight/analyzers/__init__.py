@@ -20,7 +20,6 @@ _ANALYZERS: Dict[str, BaseAnalyzer] = {
     "DOCX": DocxAnalyzer(),
     "DOCM": DocxAnalyzer(),
     "EML": EmailAnalyzer(),
-    "MSG": EmailAnalyzer(),
     "ZIP": ArchiveAnalyzer(),
     "IMAGE_JPEG": ImageAnalyzer(),
     "IMAGE_PNG": ImageAnalyzer(),
