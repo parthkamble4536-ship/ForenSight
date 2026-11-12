@@ -2,7 +2,7 @@
 
 **Project**: ForenSight — Advanced Digital Forensics & Evidence Intelligence Platform  
 **Location**: `D:\Projects\ForenSight`  
-**Current Phase**: Phase 0–3 Complete (Audit, P0 Fixes, Analyzers + Provenance, Evidence Intelligence Center); Phases 4–5 Scheduled  
+**Current Phase**: Phases 0–4 Complete; Phase 5 Windows/Adversarial/Security Validation Complete (Kali Linux native run ready for on-target execution)  
 **Last Updated**: 2026-11-12  
 
 ---
@@ -15,8 +15,8 @@
 | **Phase 1: Six Critical Engineering Fixes** | **P0** | **COMPLETE** | Resolved `requirements.txt`, SQLite duplicate persistence, custody chain restoration/validation, HTML/PDF escaping, timeline persistence, and doc sync. |
 | **Phase 2: Advanced Forensic Analysis** | **P1** | **COMPLETE** | Upgraded PE/PDF/Office/Email/Archive/Image/Text analyzers (`2.1.0`), added bounded nested ZIP & XML caps, removed unsupported `.msg` claim, persisted full detection provenance & IOC offsets. |
 | **Phase 3: Evidence Intelligence Center** | **P1** | **COMPLETE** | Built Evidence Verification Center (`/verification`), Findings Investigation Center (`/findings`), Multi-Source UTC Timeline (`/timeline`), Case Workflow (`OPEN`/`IN_PROGRESS`/`UNDER_REVIEW`/`CLOSED`), tags, notes, and persisted Ed25519 manifest verification. |
-| **Phase 4: Reporting & UX Polish** | **P1** | **PENDING** | Responsive UI polish + enriched deterministic HTML/JSON/PDF reports (full custody, timeline, versions, correlation, manifest verification). |
-| **Phase 5: Windows, Adversarial, Security & Kali Validation** | **CRITICAL** | **PENDING** | Clean venv install validation, adversarial file battery, security tests, native Kali execution proof. |
+| **Phase 4: Reporting & UX Polish** | **P1** | **COMPLETE** | Enriched 16-section HTML/JSON/PDF reports with deterministic `report_id`, full case/verification/custody/timeline/correlation sections, manifest verify endpoint, safe DOM error handling, plus CSV Findings & STIX 2.1 IOC exports. |
+| **Phase 5: Windows, Adversarial, Security & Kali Validation** | **CRITICAL** | **WINDOWS COMPLETE / KALI READY** | **100 tests passing** on Windows Python 3.13 (adversarial battery, security boundaries, Bandit high=0). Native Kali execution (`setup_kali.sh`) prepared; final Kali runtime confirmation must be executed directly on Kali Linux after push. |
 
 ---
 

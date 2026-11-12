@@ -50,7 +50,9 @@
             Verify Vault Integrity
         </button>
         <a href="/evidence/{{ evidence.evidence_id }}/export/html" target="_blank" class="btn btn-outline">HTML Report</a>
-        <a href="/evidence/{{ evidence.evidence_id }}/export/json" target="_blank" class="btn btn-outline">JSON Telemetry</a>
+        <a href="/evidence/{{ evidence.evidence_id }}/export/json" target="_blank" class="btn btn-outline">JSON Report</a>
+        <a href="/evidence/{{ evidence.evidence_id }}/export/csv" class="btn btn-outline">Findings CSV</a>
+        <a href="/evidence/{{ evidence.evidence_id }}/export/stix" class="btn btn-outline">STIX 2.1 IOCs</a>
         <a href="/evidence/{{ evidence.evidence_id }}/export/pdf" target="_blank" class="btn">Signed PDF Report</a>
     </div>
 </div>

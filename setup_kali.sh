@@ -40,7 +40,10 @@ if [ ! -f "data/samples/sample_clean.exe" ]; then
     python3 scripts/generate_samples.py
 fi
 
-# 5. Run Verification & Test Suite
+# 5. Run Environment Audit & Automated Test Suite
+echo "[*] Running environment readiness audit..."
+python3 scripts/verify_setup.py
+
 echo "[*] Executing automated test suite..."
 python3 -m pytest tests/ -v
 

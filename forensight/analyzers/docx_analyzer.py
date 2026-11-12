@@ -46,7 +46,7 @@ class DocxAnalyzer(BaseAnalyzer):
         return ["DOCX", "DOCM"]
 
     def _safe_read_xml_member(self, zf: zipfile.ZipFile, member_name: str) -> Optional[bytes]:
-        """Read an XML/rels member safely within MAX_XML_PART_BYTES to defend against compressed XML bombs."""
+        """Read an XML/rels member safely within MAX_XML_PART_BYTES and reject DTD/ENTITY declarations."""
         try:
             info = zf.getinfo(member_name)
             if info.file_size > self.MAX_XML_PART_BYTES:
@@ -54,9 +54,17 @@ class DocxAnalyzer(BaseAnalyzer):
             data = zf.read(member_name)
             if len(data) > self.MAX_XML_PART_BYTES:
                 return None
+            upper_head = data[:8192].upper()
+            if b"<!DOCTYPE" in upper_head or b"<!ENTITY" in upper_head:
+                return None
             return data
         except Exception:
             return None
+
+    @staticmethod
+    def _parse_xml_safely(xml_bytes: bytes) -> ET.Element:
+        """Parse size-bounded XML bytes after DTD/ENTITY declarations are rejected."""
+        return ET.fromstring(xml_bytes)  # nosec B314
 
     def _parse_xml_timestamp(self, text: Optional[str]) -> Optional[datetime]:
         """Parse ISO 8601 XML timestamp strings (e.g. 2026-11-10T12:00:00Z)."""
@@ -170,7 +178,7 @@ class DocxAnalyzer(BaseAnalyzer):
                         content = self._safe_read_xml_member(zf, rels_path)
                         if not content:
                             continue
-                        root = ET.fromstring(content)
+                        root = self._parse_xml_safely(content)
                         for rel in root.iter():
                             if rel.attrib.get("TargetMode") == "External":
                                 target = rel.attrib.get("Target", "")
@@ -238,7 +246,7 @@ class DocxAnalyzer(BaseAnalyzer):
                     try:
                         core_content = self._safe_read_xml_member(zf, "docProps/core.xml")
                         if core_content:
-                            core_root = ET.fromstring(core_content)
+                            core_root = self._parse_xml_safely(core_content)
                             ns = {
                                 "dc": "http://purl.org/dc/elements/1.1/",
                                 "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",

@@ -671,6 +671,10 @@ def _build_analysis_result(
     ]
     raw_details = json.loads(run.raw_details_json) if run and run.raw_details_json else {}
 
+    analyzed_ts = run.analyzed_at if (run and run.analyzed_at) else ev.stored_at
+    if analyzed_ts.tzinfo is None:
+        analyzed_ts = analyzed_ts.replace(tzinfo=timezone.utc)
+
     return AnalysisResult(
         evidence=EvidenceRecord(
             evidence_id=ev.evidence_id,
@@ -702,6 +706,7 @@ def _build_analysis_result(
         iocs=iocs,
         timeline=timeline_events or [],
         analyzer_details=raw_details,
+        analyzed_at=analyzed_ts.astimezone(timezone.utc),
     )
 
 
@@ -720,55 +725,132 @@ def _build_export_manifest(ev, result: AnalysisResult) -> EvidenceManifest:
     )
 
 
-@dashboard_router.get("/evidence/{evidence_id}/export/html")
-def export_html(evidence_id: str, db: Session = Depends(get_db)):
-    """Export self-contained standalone HTML forensic report."""
+def _prepare_export_bundle(db: Session, evidence_id: str) -> dict:
+    """Assemble full 16-section context (evidence, case, verification, custody, timeline, correlations) for exports."""
     ev = get_evidence(db, evidence_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     run = get_latest_analysis_run(db, evidence_id)
     timeline_events = list_timeline_events(db, evidence_id=evidence_id)
+    custody_events = list_custody_events(db, evidence_id=evidence_id)
     result = _build_analysis_result(ev, run, timeline_events=timeline_events)
     manifest = _build_export_manifest(ev, result)
+    verification = verify_evidence_comprehensive(db, evidence_id, record_custody=False)
 
-    html_content = report_generator.generate_html_report(result, manifest=manifest)
+    case_info = None
+    relationships = []
+    if ev.case_id:
+        case_obj = get_case(db, ev.case_id)
+        if case_obj:
+            case_info = {
+                "case_id": case_obj.case_id,
+                "title": case_obj.title,
+                "investigator": case_obj.investigator,
+                "status": case_obj.status,
+                "description": case_obj.description,
+                "case_summary": getattr(case_obj, "case_summary", None),
+            }
+        peer_items = list_evidence(db, case_id=ev.case_id, limit=50)
+        if len(peer_items) >= 2:
+            peer_results = []
+            for p_ev in peer_items:
+                p_run = get_latest_analysis_run(db, p_ev.evidence_id)
+                if p_run:
+                    peer_results.append(_build_analysis_result(p_ev, p_run))
+            all_rels = evidence_correlator.correlate_case_evidence(peer_results)
+            relationships = [
+                r for r in all_rels
+                if r.source_evidence_id == evidence_id or r.target_evidence_id == evidence_id
+            ]
+
+    return {
+        "ev": ev,
+        "result": result,
+        "manifest": manifest,
+        "custody_events": custody_events,
+        "case_info": case_info,
+        "verification": verification,
+        "relationships": relationships,
+    }
+
+
+@dashboard_router.get("/evidence/{evidence_id}/export/html")
+def export_html(evidence_id: str, db: Session = Depends(get_db)):
+    """Export self-contained standalone HTML forensic report."""
+    b = _prepare_export_bundle(db, evidence_id)
+    html_content = report_generator.generate_html_report(
+        b["result"],
+        manifest=b["manifest"],
+        custody_events=b["custody_events"],
+        case_info=b["case_info"],
+        verification=b["verification"],
+        relationships=b["relationships"],
+    )
     return HTMLResponse(content=html_content)
 
 
 @dashboard_router.get("/evidence/{evidence_id}/export/json")
 def export_json(evidence_id: str, db: Session = Depends(get_db)):
     """Export machine-readable JSON forensic report."""
-    ev = get_evidence(db, evidence_id)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Evidence not found")
-
-    run = get_latest_analysis_run(db, evidence_id)
-    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
-    result = _build_analysis_result(ev, run, timeline_events=timeline_events)
-    manifest = _build_export_manifest(ev, result)
-
-    json_content = report_generator.generate_json_report(result, manifest=manifest)
+    b = _prepare_export_bundle(db, evidence_id)
+    json_content = report_generator.generate_json_report(
+        b["result"],
+        manifest=b["manifest"],
+        custody_events=b["custody_events"],
+        case_info=b["case_info"],
+        verification=b["verification"],
+        relationships=b["relationships"],
+    )
     return Response(content=json_content, media_type="application/json")
 
 
 @dashboard_router.get("/evidence/{evidence_id}/export/pdf")
 def export_pdf(evidence_id: str, db: Session = Depends(get_db)):
     """Export publication-quality PDF forensic report."""
-    ev = get_evidence(db, evidence_id)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Evidence not found")
-
-    run = get_latest_analysis_run(db, evidence_id)
-    timeline_events = list_timeline_events(db, evidence_id=evidence_id)
-    result = _build_analysis_result(ev, run, timeline_events=timeline_events)
-    manifest = _build_export_manifest(ev, result)
-
+    b = _prepare_export_bundle(db, evidence_id)
+    ev = b["ev"]
     pdf_path = settings.reports_dir / f"forensight_report_{evidence_id}.pdf"
-    report_generator.generate_pdf_report(result, output_path=pdf_path, manifest=manifest)
+    report_generator.generate_pdf_report(
+        b["result"],
+        output_path=pdf_path,
+        manifest=b["manifest"],
+        custody_events=b["custody_events"],
+        case_info=b["case_info"],
+        verification=b["verification"],
+        relationships=b["relationships"],
+    )
 
     return FileResponse(
         path=str(pdf_path),
         filename=f"ForenSight_Report_{ev.sanitized_filename}.pdf",
         media_type="application/pdf",
+    )
+
+
+@dashboard_router.get("/evidence/{evidence_id}/export/csv")
+def export_csv_findings(evidence_id: str, db: Session = Depends(get_db)):
+    """Export forensic findings and provenance as CSV."""
+    b = _prepare_export_bundle(db, evidence_id)
+    csv_text = report_generator.generate_csv_findings_report(b["result"])
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="ForenSight_Findings_{b["ev"].sanitized_filename}.csv"'
+        },
+    )
+
+
+@dashboard_router.get("/evidence/{evidence_id}/export/stix")
+def export_stix_iocs(evidence_id: str, db: Session = Depends(get_db)):
+    """Export extracted IOCs as a STIX 2.1 Threat Intelligence bundle."""
+    b = _prepare_export_bundle(db, evidence_id)
+    stix_text = report_generator.generate_stix21_bundle(b["result"])
+    return Response(
+        content=stix_text,
+        media_type="application/stix+json",
+        headers={
+            "Content-Disposition": f'attachment; filename="ForenSight_STIX21_{b["ev"].sanitized_filename}.json"'
+        },
     )

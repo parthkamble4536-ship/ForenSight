@@ -270,7 +270,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     statusBox.appendChild(msgEl);
                 }
             } catch (err) {
-                alert("Integrity verification request failed: " + err);
+                const statusBox = document.getElementById("integrity-result-box");
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.className = "badge-critical";
+                    statusBox.textContent = "Integrity verification request failed: " + (err && err.message ? err.message : String(err));
+                }
             } finally {
                 verifyBtn.disabled = false;
                 verifyBtn.innerText = "Verify Vault Integrity";

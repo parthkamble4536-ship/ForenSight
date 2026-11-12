@@ -35,7 +35,7 @@ from forensight.core.types import (
     TimelineEventType,
 )
 from forensight.crypto.keys import key_manager
-from forensight.crypto.signing import sign_manifest
+from forensight.crypto.signing import sign_manifest, verify_manifest
 from forensight.database import (
     create_case,
     create_evidence,
@@ -495,4 +495,24 @@ def get_unified_timeline(
             {**item, "timestamp": item["timestamp"].isoformat()}
             for item in unified
         ],
+    }
+
+
+@api_router.post("/reports/verify-manifest")
+def verify_report_manifest(manifest: EvidenceManifest):
+    """Verify an exported EvidenceManifest JSON block against the active Ed25519 vault public key."""
+    _, pub_key = key_manager.load_or_create_keypair()
+    active_fp = key_manager.get_public_key_fingerprint(pub_key)
+    fp_matches = (manifest.public_key_fingerprint == active_fp) if manifest.public_key_fingerprint else True
+    sig_valid = verify_manifest(manifest, pub_key) if fp_matches else False
+    return {
+        "manifest_id": manifest.manifest_id,
+        "evidence_id": manifest.evidence_id,
+        "signature_valid": sig_valid,
+        "fingerprint_matches_active_key": fp_matches,
+        "active_public_key_fingerprint": active_fp,
+        "caveat": (
+            "Signature verification checks Ed25519 integrity against the active vault public key; "
+            "it confirms manifest integrity since ForenSight acquisition."
+        ),
     }

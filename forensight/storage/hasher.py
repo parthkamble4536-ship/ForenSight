@@ -23,8 +23,8 @@ class StreamHasher:
 
     def __init__(self) -> None:
         self._sha256 = hashlib.sha256()
-        self._sha1 = hashlib.sha1()
-        self._md5 = hashlib.md5()
+        self._sha1 = hashlib.sha1(usedforsecurity=False)
+        self._md5 = hashlib.md5(usedforsecurity=False)
         self._size_bytes: int = 0
         self._finalized: bool = False
         self._result: HashResult | None = None
