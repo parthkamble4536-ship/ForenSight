@@ -259,3 +259,4 @@ class TestPhase3Intelligence:
         # Attachment comes BEFORE email in list -> reverse branch must still link them
         rels = evidence_correlator.correlate_case_evidence([res_attachment, res_email])
         assert any(r.relationship_type.value == "EMAIL_ATTACHMENT" and r.shared_value == att_sha for r in rels)
+
