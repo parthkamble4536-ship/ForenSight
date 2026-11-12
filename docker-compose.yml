@@ -1,0 +1,55 @@
+services:
+  forensight:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: forensight:latest
+    container_name: forensight-workbench
+    restart: unless-stopped
+
+    # Security: Strictly bind to host loopback interface (127.0.0.1)
+    # This prevents exposure across the local network / external interfaces
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    # Environment variables
+    environment:
+      - FORENSIGHT_HOST=0.0.0.0
+      - FORENSIGHT_PORT=8000
+      - FORENSIGHT_DEBUG=false
+      - FORENSIGHT_MAX_UPLOAD_SIZE_BYTES=26214400  # 25 MB
+      - FORENSIGHT_ENABLE_EXTERNAL_INTEL=false      # Local-first, air-gapped
+      - PYTHONUNBUFFERED=1
+
+    # Persistent Storage: Maintain evidence vault, reports, Ed25519 keys, and SQLite DB
+    volumes:
+      - forensight_data:/app/data
+
+    # Security hardening options
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Resource limits for DoS / runaway analysis defense
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    # Service health monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  forensight_data:
+    name: forensight_vault_data
+    driver: local

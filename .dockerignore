@@ -1,0 +1,48 @@
+# Git & IDE
+.git
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python bytecode & cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache
+.coverage
+htmlcov
+
+# Virtual Environments
+venv
+.venv
+env
+ENV
+
+# Local secrets & environment overrides
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases & temporary run state
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite3
+*.db
+*.db-*
+*.sqlite
+
+# Cryptographic keys generated on host (container generates its own or mounts via volume)
+data/keys/*
+!data/keys/.gitkeep
+
+# Vault evidence & reports generated locally
+data/evidence/*
+!data/evidence/.gitkeep
+data/reports/*
+!data/reports/.gitkeep
+
+# Screenshots & documentation media
+Screenshots/

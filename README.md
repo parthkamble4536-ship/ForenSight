@@ -203,6 +203,32 @@ python3 -m pytest tests/ -v
 uvicorn forensight.main:app --host 127.0.0.1 --port 8000
 ```
 
+---
+
+### Docker & Docker Compose (Containerized Orchestration)
+
+ForenSight can be built and run in an isolated container with resource ceilings and loopback binding:
+
+```bash
+# 1. Build and start the containerized service
+docker-compose up -d --build
+
+# 2. View container health & logs
+docker-compose logs -f
+
+# 3. Stop the service
+docker-compose down
+```
+
+The Docker deployment:
+- Uses a multi-stage Debian-slim container running Python 3.13.
+- Runs under a dedicated unprivileged user (`forensight`, UID 10001).
+- Strictly binds to `127.0.0.1:8000` on the host (no network-wide exposure).
+- Mounts a named volume (`forensight_vault_data`) to persist SQLite database, cryptographic keys, and the evidence vault.
+- Drops all Linux kernel capabilities (`cap_drop: ALL`) and prevents privilege escalation (`no-new-privileges: true`).
+
+---
+
 Navigate to `http://127.0.0.1:8000` in your web browser.
 
 ---
