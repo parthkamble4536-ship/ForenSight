@@ -25,8 +25,11 @@ def sanitize_filename(filename: Optional[str]) -> str:
     # Remove null bytes and non-printable control characters
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", filename)
 
+    # Normalize Windows backslashes to forward slashes to ensure cross-platform path handling on Linux
+    cleaned = cleaned.replace("\\", "/")
+
     # Extract strictly the basename to prevent directory climbing
-    cleaned = Path(cleaned).name
+    cleaned = cleaned.split("/")[-1]
 
     # Remove any remaining dangerous tokens or path traversal remnants
     cleaned = cleaned.replace("..", "").replace("/", "").replace("\\", "").strip()
