@@ -81,7 +81,7 @@ jobs:
 
       - name: "🔐 Run Bandit high-severity security scan"
         run: |
-          bandit -r forensight/ scripts/ -ll -q --severity-level high
+          bandit -r forensight/ scripts/ -lll -q
           echo "Bandit SAST passed — zero high-severity findings"
 
   # ─────────────────────────────────────────────────────────────────────────────
